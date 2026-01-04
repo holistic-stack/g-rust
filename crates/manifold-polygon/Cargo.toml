@@ -1,0 +1,13 @@
+[package]
+name = "manifold-polygon"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+manifold-types = { path = "../manifold-types" }
+manifold-math = { path = "../manifold-math" }
+glam.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true

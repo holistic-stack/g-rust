@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/manifold-math",
+    "crates/manifold-types",
+    "crates/manifold-parallel",
+    "crates/manifold-collider",
+    "crates/manifold-polygon",
+    "crates/manifold-boolean",
+    "crates/manifold-meshio",
+    "crates/manifold",
+]
+
+[workspace.dependencies]
+glam = "0.25"
+rayon = "1.8"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+proptest = "1.4"
+criterion = "0.5"
+rstest = "0.18"
+dashmap = "5.5"

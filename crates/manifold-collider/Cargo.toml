@@ -1,0 +1,14 @@
+[package]
+name = "manifold-collider"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+manifold-types = { path = "../manifold-types" }
+manifold-math = { path = "../manifold-math" }
+manifold-parallel = { path = "../manifold-parallel" }
+glam.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
