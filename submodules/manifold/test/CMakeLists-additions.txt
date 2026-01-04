@@ -1,0 +1,10 @@
+# Add to test/CMakeLists.txt after line that creates manifold_test executable
+
+# Debug subdivision test
+add_executable(debug_subdivision debug_subdivision.cpp)
+target_link_libraries(
+  debug_subdivision
+  PRIVATE
+    manifold
+    $<$<BOOL:${MANIFOLD_PAR}>:TBB::tbb>
+)
