@@ -18,18 +18,20 @@ pub mod node;
 pub mod radix_tree;
 
 use build_boxes::BuildInternalBoxes;
-use find_collision::{FindCollision, Query, Recorder};
-use glam::{DMat4, DVec3};
+use find_collision::FindCollision;
+pub use find_collision::{Query, Recorder};
+use glam::DMat4;
 use manifold_math::Box;
-use manifold_parallel::{auto_policy, for_each, for_each_n, ExecutionPolicy};
+use manifold_parallel::{auto_policy, for_each, for_each_n, ExecutionPolicy, K_SEQ_THRESHOLD};
 use node::*;
 use radix_tree::CreateRadixTree;
 use std::sync::atomic::AtomicI32;
 
+#[derive(Debug, Clone)]
 pub struct Collider {
-    node_bbox: Vec<Box>,
-    node_parent: Vec<i32>,
-    internal_children: Vec<(i32, i32)>,
+    pub node_bbox: Vec<Box>,
+    pub node_parent: Vec<i32>,
+    pub internal_children: Vec<(i32, i32)>,
 }
 
 impl Collider {
@@ -86,7 +88,7 @@ impl Collider {
         }
 
         if axis_aligned {
-            let policy = auto_policy(self.node_bbox.len(), 100_000);
+            let policy = auto_policy(self.node_bbox.len(), K_SEQ_THRESHOLD);
             for_each(policy, &mut self.node_bbox, |box_| {
                 *box_ = box_.transform(transform);
             });
@@ -114,7 +116,7 @@ impl Collider {
         let node_bbox_len = self.node_bbox.len();
 
         for_each_n(
-            auto_policy(num_leaves as usize, 1000),
+            auto_policy(num_leaves as usize, K_SEQ_THRESHOLD),
             0,
             num_leaves as usize,
             |leaf| {
@@ -172,21 +174,5 @@ impl Collider {
         } else {
             self.num_internal() + 1
         }
-    }
-
-    pub fn spread_bits_3(mut v: u32) -> u32 {
-        v = 0xFF0000FF & (v.wrapping_mul(0x00010001));
-        v = 0x0F00F00F & (v.wrapping_mul(0x00000101));
-        v = 0xC30C30C3 & (v.wrapping_mul(0x00000011));
-        v = 0x49249249 & (v.wrapping_mul(0x00000005));
-        v
-    }
-
-    pub fn morton_code(position: DVec3, bbox: Box) -> u32 {
-        let xyz = (position - bbox.min) / (bbox.max - bbox.min);
-        let x = f64::min(1023.0, f64::max(0.0, 1024.0 * xyz.x)) as u32;
-        let y = f64::min(1023.0, f64::max(0.0, 1024.0 * xyz.y)) as u32;
-        let z = f64::min(1023.0, f64::max(0.0, 1024.0 * xyz.z)) as u32;
-        Self::spread_bits_3(x) * 4 + Self::spread_bits_3(y) * 2 + Self::spread_bits_3(z)
     }
 }

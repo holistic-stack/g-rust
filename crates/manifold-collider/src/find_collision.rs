@@ -40,8 +40,7 @@ where
     R: Recorder,
 {
     pub fn record_collision(&self, node: i32, query_idx: i32) -> bool {
-        let overlaps =
-            self.node_bbox[node as usize].does_overlap_box(&self.query.get_bbox(query_idx));
+        let overlaps = self.node_bbox[node as usize].does_overlap(&self.query.get_bbox(query_idx));
         if overlaps && is_leaf(node) {
             let leaf_idx = node_to_leaf(node);
             if !SELF_COLLISION || leaf_idx != query_idx {

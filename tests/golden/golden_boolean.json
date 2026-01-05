@@ -1,0 +1,412 @@
+{
+  "tests": 39,
+  "failures": 0,
+  "disabled": 1,
+  "errors": 0,
+  "timestamp": "2026-01-05T12:16:13Z",
+  "time": "2.357s",
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "Boolean",
+      "tests": 39,
+      "failures": 0,
+      "disabled": 1,
+      "errors": 0,
+      "timestamp": "2026-01-05T12:16:13Z",
+      "time": "2.357s",
+      "testsuite": [
+        {
+          "name": "Tetra",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 24,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0.005s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "MeshGLRoundTrip",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 37,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Normals",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 60,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0.007s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "EmptyOriginal",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 92,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Mirrored",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 113,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Cubes",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 126,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Simplify",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 141,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0.01s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "DISABLED_SimplifyCracks",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 164,
+          "status": "NOTRUN",
+          "result": "SUPPRESSED",
+          "timestamp": "1970-01-01T00:00:00Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "NoRetainedVerts",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 181,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "PropertiesNoIntersection",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 189,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "MixedProperties",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 198,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "MixedNumProp",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 207,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "PropsMismatch",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 219,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0.001s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "UnionDifference",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 232,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "TreeTransforms",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 240,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "CreatePropertiesSlow",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 248,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:13Z",
+          "time": "2.317s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "SelfSubtract",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 261,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Perturb",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 270,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Perturb1",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 292,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Perturb2",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 313,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0.003s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Coplanar",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 363,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "MultiCoplanar",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 383,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "AlmostCoplanar",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 394,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "FaceUnion",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 401,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "EdgeUnion",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 414,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "EdgeUnion2",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 420,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "CornerUnion",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 428,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "DebugTangentFaces",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 444,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Split",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 474,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "SplitByPlane",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 484,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "SplitByPlane60",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 501,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Vug",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 517,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Empty",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 531,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Winding",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 542,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "NonIntersecting",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 552,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Precision",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 563,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "Precision2",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 579,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "SimpleCubeRegression",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 592,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0s",
+          "classname": "Boolean"
+        },
+        {
+          "name": "BatchBoolean",
+          "file": "\/workspaces\/workspace\/g-rust\/submodules\/manifold\/test\/boolean_test.cpp",
+          "line": 603,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-01-05T12:16:15Z",
+          "time": "0.002s",
+          "classname": "Boolean"
+        }
+      ]
+    }
+  ]
+}

@@ -14,6 +14,10 @@
 
 pub mod ops;
 pub mod policy;
+pub mod scan;
+pub mod sort;
 
 pub use ops::*;
 pub use policy::{auto_policy, ExecutionPolicy, K_SEQ_THRESHOLD};
+pub use scan::{exclusive_scan, inclusive_scan};
+pub use sort::stable_sort;

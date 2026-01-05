@@ -1,7 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/manifold-math",
     "crates/manifold-types",
     "crates/manifold-parallel",
     "crates/manifold-collider",

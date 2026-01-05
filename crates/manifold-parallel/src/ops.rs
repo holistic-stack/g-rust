@@ -77,3 +77,23 @@ where
         ExecutionPolicy::Seq => iter.into_iter().fold(identity, f),
     }
 }
+
+pub fn copy_if<T, P>(policy: ExecutionPolicy, input: &[T], output: &mut Vec<T>, pred: P)
+where
+    T: Send + Sync + Copy,
+    P: Fn(&T) -> bool + Sync + Send + Copy,
+{
+    match policy {
+        ExecutionPolicy::Seq => {
+            for x in input {
+                if pred(x) {
+                    output.push(*x);
+                }
+            }
+        }
+        ExecutionPolicy::Par => {
+            let mut result: Vec<T> = input.into_par_iter().filter(|x| pred(x)).copied().collect();
+            output.append(&mut result);
+        }
+    }
+}

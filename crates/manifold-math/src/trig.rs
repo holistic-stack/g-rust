@@ -29,17 +29,23 @@ pub fn sind(x: f64) -> f64 {
     if x < 0.0 {
         return -sind(-x);
     }
-    let quo = (x / 90.0).round() as i32;
-    let x_rem = x - (quo as f64) * 90.0;
+    let (rem, quo) = remquo(x.abs(), 90.0);
     match quo % 4 {
-        0 => radians(x_rem).sin(),
-        1 => radians(x_rem).cos(),
-        2 => -radians(x_rem).sin(),
-        3 => -radians(x_rem).cos(),
+        0 => radians(rem).sin(),
+        1 => radians(rem).cos(),
+        2 => -radians(rem).sin(),
+        3 => -radians(rem).cos(),
         _ => 0.0,
     }
 }
 
 pub fn cosd(x: f64) -> f64 {
     sind(x + 90.0)
+}
+
+/// Must implement remquo to match C behavior
+fn remquo(x: f64, y: f64) -> (f64, i32) {
+    let quo = (x / y).round() as i32;
+    let rem = x - (quo as f64) * y;
+    (rem, quo)
 }

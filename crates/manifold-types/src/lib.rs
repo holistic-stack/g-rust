@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod barycentric;
+pub mod disjoint_sets;
 pub mod error;
 pub mod halfedge;
 pub mod op_type;
@@ -20,6 +21,7 @@ pub mod tmp_edge;
 pub mod tri_ref;
 
 pub use barycentric::Barycentric;
+pub use disjoint_sets::DisjointSets;
 pub use error::Error;
 pub use halfedge::{next_halfedge, Halfedge};
 pub use op_type::OpType;

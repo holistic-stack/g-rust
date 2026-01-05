@@ -41,12 +41,19 @@ impl Box {
         abs_max.max_element()
     }
 
-    pub fn contains_point(&self, p: DVec3) -> bool {
+    pub fn contains(&self, p: DVec3) -> bool {
         p.cmpge(self.min).all() && self.max.cmpge(p).all()
     }
 
-    pub fn contains_box(&self, box_: &Box) -> bool {
-        box_.min.cmpge(self.min).all() && self.max.cmpge(box_.max).all()
+    pub fn contains_box(&self, other: &Box) -> bool {
+        other.min.cmpge(self.min).all() && self.max.cmpge(other.max).all()
+    }
+
+    pub fn union_box(&self, other: &Box) -> Box {
+        Box {
+            min: self.min.min(other.min),
+            max: self.max.max(other.max),
+        }
     }
 
     pub fn union_point(&mut self, p: DVec3) {
@@ -54,32 +61,35 @@ impl Box {
         self.max = self.max.max(p);
     }
 
-    pub fn union_box(&self, box_: &Box) -> Box {
-        Box {
-            min: self.min.min(box_.min),
-            max: self.max.max(box_.max),
-        }
-    }
-
     pub fn transform(&self, transform: DMat4) -> Box {
         let mut out = Box::default();
-        let min_t = (transform * self.min.extend(1.0)).xyz();
-        let max_t = (transform * self.max.extend(1.0)).xyz();
-        out.min = min_t.min(max_t);
-        out.max = min_t.max(max_t);
+        let corners = [
+            DVec3::new(self.min.x, self.min.y, self.min.z),
+            DVec3::new(self.min.x, self.min.y, self.max.z),
+            DVec3::new(self.min.x, self.max.y, self.min.z),
+            DVec3::new(self.min.x, self.max.y, self.max.z),
+            DVec3::new(self.max.x, self.min.y, self.min.z),
+            DVec3::new(self.max.x, self.min.y, self.max.z),
+            DVec3::new(self.max.x, self.max.y, self.min.z),
+            DVec3::new(self.max.x, self.max.y, self.max.z),
+        ];
+        for corner in corners {
+            let transformed = (transform * corner.extend(1.0)).xyz();
+            out.union_point(transformed);
+        }
         out
     }
 
-    pub fn does_overlap_box(&self, box_: &Box) -> bool {
-        self.min.x <= box_.max.x
-            && self.min.y <= box_.max.y
-            && self.min.z <= box_.max.z
-            && self.max.x >= box_.min.x
-            && self.max.y >= box_.min.y
-            && self.max.z >= box_.min.z
+    pub fn does_overlap(&self, other: &Box) -> bool {
+        self.min.x <= other.max.x
+            && self.min.y <= other.max.y
+            && self.min.z <= other.max.z
+            && self.max.x >= other.min.x
+            && self.max.y >= other.min.y
+            && self.max.z >= other.min.z
     }
 
-    pub fn does_overlap_point_projected(&self, p: DVec3) -> bool {
+    pub fn does_overlap_point(&self, p: DVec3) -> bool {
         p.x <= self.max.x && p.x >= self.min.x && p.y <= self.max.y && p.y >= self.min.y
     }
 
@@ -129,7 +139,7 @@ impl Rect {
         0.5 * (self.max + self.min)
     }
 
-    pub fn contains_point(&self, p: DVec2) -> bool {
+    pub fn contains(&self, p: DVec2) -> bool {
         p.cmpge(self.min).all() && self.max.cmpge(p).all()
     }
 
@@ -137,7 +147,7 @@ impl Rect {
         rect.min.cmpge(self.min).all() && self.max.cmpge(rect.max).all()
     }
 
-    pub fn does_overlap_rect(&self, rect: &Rect) -> bool {
+    pub fn does_overlap(&self, rect: &Rect) -> bool {
         self.min.x <= rect.max.x
             && self.min.y <= rect.max.y
             && self.max.x >= rect.min.x
@@ -152,7 +162,7 @@ impl Rect {
         self.min.is_finite() && self.max.is_finite()
     }
 
-    pub fn union_point(&mut self, p: DVec2) {
+    pub fn union_(&mut self, p: DVec2) {
         self.min = self.min.min(p);
         self.max = self.max.max(p);
     }

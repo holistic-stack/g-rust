@@ -8,6 +8,7 @@ manifold-types = { path = "../manifold-types" }
 manifold-math = { path = "../manifold-math" }
 manifold-parallel = { path = "../manifold-parallel" }
 manifold-collider = { path = "../manifold-collider" }
+manifold-polygon = { path = "../manifold-polygon" }
 glam.workspace = true
 thiserror.workspace = true
 

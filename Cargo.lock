@@ -163,6 +163,7 @@ dependencies = [
  "manifold-boolean",
  "manifold-meshio",
  "manifold-polygon",
+ "manifold-types",
  "rstest",
  "thiserror",
 ]
@@ -175,6 +176,7 @@ dependencies = [
  "manifold-collider",
  "manifold-math",
  "manifold-parallel",
+ "manifold-polygon",
  "manifold-types",
  "rstest",
  "thiserror",
