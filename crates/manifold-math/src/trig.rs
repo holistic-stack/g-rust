@@ -44,7 +44,7 @@ pub fn cosd(x: f64) -> f64 {
 }
 
 /// Must implement remquo to match C behavior
-fn remquo(x: f64, y: f64) -> (f64, i32) {
+pub fn remquo(x: f64, y: f64) -> (f64, i32) {
     let quo = (x / y).round() as i32;
     let rem = x - (quo as f64) * y;
     (rem, quo)

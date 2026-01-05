@@ -12,13 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod face_tri;
 pub mod helpers;
 pub mod kernel;
 pub mod triangulation;
-
-#[cfg(test)]
-mod tests;
 
 pub use kernel::*;
 pub use triangulation::triangulate_mesh_faces;

@@ -98,8 +98,7 @@ pub fn intersect(a_l: DVec3, a_r: DVec3, b_l: DVec3, b_r: DVec3) -> DVec4 {
 #[inline]
 pub fn shadows(p: f64, q: f64, dir: f64) -> bool {
     if p == q {
-        dir < 0.0
-    } else {
-        p < q
+        return dir < 0.0;
     }
+    p < q
 }

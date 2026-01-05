@@ -18,10 +18,15 @@ use manifold_math::{morton_code, Box as GeoBox, K_NO_CODE};
 use manifold_types::{next_halfedge, Halfedge, OpType, TriRef};
 
 pub mod boolean_result;
+pub mod edge_ops;
+pub mod intersect12;
 pub mod kernel02;
 pub mod kernel11;
 pub mod kernel12;
+pub mod properties;
+pub mod sdf;
 pub mod shadow01;
+pub mod smoothing;
 pub mod subdivision;
 pub mod winding03;
 
@@ -59,11 +64,53 @@ pub struct Boolean3<'a> {
 
 impl<'a> Boolean3<'a> {
     pub fn new(in_p: &'a ManifoldImpl, in_q: &'a ManifoldImpl, op: OpType) -> Self {
+        // Symbolic perturbation:
+        // Union -> expand inP, expand inQ
+        // Difference, Intersection -> contract inP, expand inQ
+        // Technically Intersection should contract inQ, but doing it this way makes
+        // Split faster and any suboptimal cases seem pretty rare.
         let expand_p = matches!(op, OpType::Add);
-        let xv12 = Intersections::new();
-        let xv21 = Intersections::new();
-        let w03 = winding03::winding03_true_true(in_p, in_q, &xv12, expand_p);
-        let w30 = winding03::winding03_false_true(in_p, in_q, &xv21, expand_p);
+
+        // Early-out check: if either mesh is empty or they don't overlap
+        // C++ Reference: submodules/manifold/src/boolean3.cpp:515-520
+        let w03: Vec<i32>;
+        let w30: Vec<i32>;
+        let mut xv12 = Intersections::new();
+        let mut xv21 = Intersections::new();
+        let mut valid = true;
+
+        if in_p.vert_pos.is_empty()
+            || in_q.vert_pos.is_empty()
+            || !in_p.bbox.does_overlap(&in_q.bbox)
+        {
+            // No overlap, early out
+            // C++ Reference: submodules/manifold/src/boolean3.cpp:515-520
+            w03 = vec![0; in_p.vert_pos.len()];
+            w30 = vec![0; in_q.vert_pos.len()];
+        } else {
+            // Level 3
+            // Build up the intersection of the edges and triangles, keeping only those
+            // that intersect, and record the direction the edge is passing through the
+            // triangle.
+            // C++ Reference: submodules/manifold/src/boolean3.cpp:527-532
+            xv12 = intersect12::intersect12_true_true(in_p, in_q, expand_p);
+            xv21 = intersect12::intersect12_false_true(in_p, in_q, expand_p);
+
+            // Check for overflow
+            // C++ Reference: submodules/manifold/src/boolean3.cpp:534-537
+            const INT_MAX_SZ: usize = i32::MAX as usize;
+            if xv12.x12.len() > INT_MAX_SZ || xv21.x12.len() > INT_MAX_SZ {
+                valid = false;
+                w03 = vec![];
+                w30 = vec![];
+            } else {
+                // Compute winding numbers of all vertices using flood fill
+                // Vertices on the same connected component have the same winding number
+                // C++ Reference: submodules/manifold/src/boolean3.cpp:539-542
+                w03 = winding03::winding03_true_true(in_p, in_q, &xv12, expand_p);
+                w30 = winding03::winding03_false_true(in_p, in_q, &xv21, expand_p);
+            }
+        }
 
         Self {
             in_p,
@@ -73,7 +120,7 @@ impl<'a> Boolean3<'a> {
             xv21_: xv21,
             w03_: w03,
             w30_: w30,
-            valid: true,
+            valid,
         }
     }
 }
@@ -105,6 +152,7 @@ pub struct ManifoldImpl {
     pub bbox: GeoBox,
     pub epsilon: f64,
     pub tolerance: f64,
+    pub halfedge_tangent: Vec<(DVec3, f64)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -330,6 +378,10 @@ impl ManifoldImpl {
             }
             self.vert_normal[v] = normal.normalize_or_zero();
         }
+    }
+
+    pub fn num_prop_vert(&self) -> usize {
+        self.vert_pos.len()
     }
 
     pub fn finish(&mut self) {

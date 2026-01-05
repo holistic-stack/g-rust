@@ -12,209 +12,200 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::kernel::kernel02;
+// Winding03 - Vertex winding number computation
+// C++ Reference: `submodules/manifold/src/boolean3.cpp:427-528`
+
+use crate::kernel::kernel02::{kernel02_false_true, kernel02_true_true};
 use crate::kernel::{Intersections, ManifoldImpl};
 use manifold_collider::{Query, Recorder};
-use manifold_math::Box as GeoBox;
+use manifold_parallel::{auto_policy, for_each, for_each_n, ExecutionPolicy, K_SEQ_THRESHOLD};
 use manifold_types::DisjointSets;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Mutex;
 
-pub struct Winding03Local {
-    pub intersections: Intersections,
+struct WindingRecorder<'a, F>
+where
+    F: Fn(i32, i32),
+{
+    callback: F,
+    _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl Winding03Local {
-    pub fn new() -> Self {
+impl<'a, F> WindingRecorder<'a, F>
+where
+    F: Fn(i32, i32) + Sync + Send,
+{
+    fn new(callback: F) -> Self {
         Self {
-            intersections: Intersections::new(),
+            callback,
+            _phantom: std::marker::PhantomData,
         }
     }
 }
 
-struct WindingQuery<'a> {
-    pub verts: &'a [u32],
-    pub vert_pos: &'a [glam::DVec3],
-}
-
-impl<'a> Query for WindingQuery<'a> {
-    fn get_bbox(&self, i: i32) -> GeoBox {
-        let p = self.vert_pos[self.verts[i as usize] as usize];
-        GeoBox::new(p, p)
-    }
-}
-
-struct WindingRecorder<'a> {
-    pub w03: &'a [AtomicI32],
-    pub verts: &'a [u32],
-    pub in_p: &'a ManifoldImpl,
-    pub in_q: &'a ManifoldImpl,
-    pub forward: bool,
-    pub expand_p: bool,
-}
-
-impl<'a> Recorder for WindingRecorder<'a> {
+impl<'a, F> Recorder for WindingRecorder<'a, F>
+where
+    F: Fn(i32, i32) + Sync + Send,
+{
     fn record(&self, query_idx: i32, leaf_idx: i32) {
-        let vert_idx = self.verts[query_idx as usize];
-        let face_idx = leaf_idx;
-
-        let (s02, z02) = if self.forward {
-            if self.expand_p {
-                kernel02::kernel02_true_true(vert_idx as i32, face_idx, self.in_p, self.in_q)
-            } else {
-                kernel02::kernel02_false_true(vert_idx as i32, face_idx, self.in_p, self.in_q)
-            }
-        } else {
-            if self.expand_p {
-                kernel02::kernel02_true_false(vert_idx as i32, face_idx, self.in_q, self.in_p)
-            } else {
-                kernel02::kernel02_false_false(vert_idx as i32, face_idx, self.in_q, self.in_p)
-            }
-        };
-
-        if z02.is_finite() {
-            let val = s02 * if self.forward { 1 } else { -1 };
-            self.w03[vert_idx as usize].fetch_add(val, Ordering::SeqCst);
-        }
+        (self.callback)(query_idx, leaf_idx);
     }
+}
+
+struct VertQuery<'a> {
+    vert_pos: &'a [glam::DVec3],
+    verts: &'a [i32],
+}
+
+impl<'a> Query for VertQuery<'a> {
+    fn get_bbox(&self, i: i32) -> manifold_math::Box {
+        let p = self.vert_pos[self.verts[i as usize] as usize];
+        manifold_math::Box::new(p, p)
+    }
+}
+
+fn winding03_inner<const EXPAND_P: bool, const FORWARD: bool>(
+    in_p: &ManifoldImpl,
+    in_q: &ManifoldImpl,
+    intersections: &Intersections,
+) -> Vec<i32> {
+    // a: 0 (vert), b: 2 (face)
+    let a = if FORWARD { in_p } else { in_q };
+    let b = if FORWARD { in_q } else { in_p };
+    let p1q2 = &intersections.p1q2;
+    let index = if FORWARD { 0 } else { 1 };
+
+    let num_verts = a.vert_pos.len();
+    let u_a = DisjointSets::new(num_verts as u32);
+
+    let halfedge_policy = auto_policy(a.halfedge.len(), K_SEQ_THRESHOLD);
+    for_each_n(halfedge_policy, 0, a.halfedge.len(), |edge| {
+        let he = &a.halfedge[edge];
+        if !he.is_forward() {
+            return;
+        }
+
+        // check if the edge is broken
+        let edge_i32 = edge as i32;
+        let is_broken = p1q2
+            .binary_search_by(|probe| probe[index].cmp(&edge_i32))
+            .is_ok();
+
+        if !is_broken {
+            u_a.unite(he.start_vert as u32, he.end_vert as u32);
+        }
+    });
+
+    // find components
+    let mut components = HashSet::new();
+    for v in 0..num_verts {
+        components.insert(u_a.find(v as u32));
+    }
+
+    let mut verts: Vec<i32> = components.into_iter().map(|c| c as i32).collect();
+    verts.sort();
+
+    let mut w03 = vec![0i32; num_verts];
+    let w03_mutexes: Vec<Mutex<i32>> = (0..num_verts).map(|_| Mutex::new(0)).collect();
+
+    let recorder_callback = |i: i32, b_idx: i32| {
+        let vert_idx = verts[i as usize];
+        let (s02, z02) = if EXPAND_P {
+            kernel02_true_true(vert_idx, b_idx, a, b)
+        } else {
+            kernel02_false_true(vert_idx, b_idx, a, b)
+        };
+        if z02.is_finite() {
+            let mut val = w03_mutexes[vert_idx as usize].lock().unwrap();
+            *val += s02 * if FORWARD { 1 } else { -1 };
+        }
+    };
+
+    let recorder = WindingRecorder::new(recorder_callback);
+    let query = VertQuery {
+        vert_pos: &a.vert_pos,
+        verts: &verts,
+    };
+
+    if let Some(ref collider) = b.collider {
+        collider.collisions::<false, _, _>(&query, verts.len() as i32, &recorder, true);
+    }
+
+    // Copy results from mutexes to w03
+    for i in 0..num_verts {
+        w03[i] = *w03_mutexes[i].lock().unwrap();
+    }
+
+    // flood fill
+    let w03_policy = auto_policy(num_verts, K_SEQ_THRESHOLD);
+    let w03_ptr = w03.as_mut_ptr() as usize;
+    for_each_n(w03_policy, 0, num_verts, |i| {
+        let root = u_a.find(i as u32) as usize;
+        if root != i {
+            unsafe {
+                let w03_mut = std::slice::from_raw_parts_mut(w03_ptr as *mut i32, num_verts);
+                w03_mut[i] = w03_mut[root];
+            }
+        }
+    });
+
+    w03
 }
 
 pub fn winding03_true_true(
     in_p: &ManifoldImpl,
     in_q: &ManifoldImpl,
-    xv12: &Intersections,
+    intersections: &Intersections,
     expand_p: bool,
 ) -> Vec<i32> {
-    let n_p = in_p.vert_pos.len();
-    let dset = DisjointSets::new(n_p as u32);
-
-    let p1q2 = &xv12.p1q2;
-    for (i, he) in in_p.halfedge.iter().enumerate() {
-        if !he.is_forward() {
-            continue;
-        }
-
-        let mut broken = false;
-        let edge_idx = i as i32;
-        let mut low = 0;
-        let mut high = p1q2.len();
-        while low < high {
-            let mid = low + (high - low) / 2;
-            if p1q2[mid][0] < edge_idx {
-                low = mid + 1;
-            } else {
-                high = mid;
-            }
-        }
-
-        if low < p1q2.len() && p1q2[low][0] == edge_idx {
-            broken = true;
-        }
-
-        if !broken {
-            dset.unite(he.start_vert as u32, he.end_vert as u32);
-        }
+    if expand_p {
+        winding03_inner::<true, true>(in_p, in_q, intersections)
+    } else {
+        winding03_inner::<false, true>(in_p, in_q, intersections)
     }
-
-    let mut components = HashSet::new();
-    for v in 0..n_p {
-        components.insert(dset.find(v as u32));
-    }
-    let verts: Vec<u32> = components.into_iter().collect();
-
-    let w03_atomic: Vec<AtomicI32> = (0..n_p).map(|_| AtomicI32::new(0)).collect();
-
-    if let Some(collider) = &in_q.collider {
-        let query = WindingQuery {
-            verts: &verts,
-            vert_pos: &in_p.vert_pos,
-        };
-        let recorder = WindingRecorder {
-            w03: &w03_atomic,
-            verts: &verts,
-            in_p,
-            in_q,
-            forward: true,
-            expand_p,
-        };
-        collider.collisions::<false, _, _>(&query, verts.len() as i32, &recorder, true);
-    }
-
-    let mut w03 = vec![0i32; n_p];
-    for i in 0..n_p {
-        let root = dset.find(i as u32);
-        w03[i] = w03_atomic[root as usize].load(Ordering::SeqCst);
-    }
-
-    w03
 }
 
 pub fn winding03_false_true(
     in_p: &ManifoldImpl,
     in_q: &ManifoldImpl,
-    xv21: &Intersections,
+    intersections: &Intersections,
     expand_p: bool,
 ) -> Vec<i32> {
-    let n_q = in_q.vert_pos.len();
-    let dset = DisjointSets::new(n_q as u32);
-
-    let p2q1 = &xv21.p1q2;
-    for (i, he) in in_q.halfedge.iter().enumerate() {
-        if !he.is_forward() {
-            continue;
-        }
-
-        let mut broken = false;
-        let edge_idx = i as i32;
-        let mut low = 0;
-        let mut high = p2q1.len();
-        while low < high {
-            let mid = low + (high - low) / 2;
-            if p2q1[mid][0] < edge_idx {
-                low = mid + 1;
-            } else {
-                high = mid;
-            }
-        }
-
-        if low < p2q1.len() && p2q1[low][0] == edge_idx {
-            broken = true;
-        }
-
-        if !broken {
-            dset.unite(he.start_vert as u32, he.end_vert as u32);
-        }
+    if expand_p {
+        winding03_inner::<true, false>(in_p, in_q, intersections)
+    } else {
+        winding03_inner::<false, false>(in_p, in_q, intersections)
     }
+}
 
-    let mut components = HashSet::new();
-    for v in 0..n_q {
-        components.insert(dset.find(v as u32));
+pub fn winding03(
+    in_p: &ManifoldImpl,
+    in_q: &ManifoldImpl,
+    intersections: &Intersections,
+    expand_p: bool,
+) -> Vec<i32> {
+    winding03_true_true(in_p, in_q, intersections, expand_p)
+}
+
+pub fn winding03_false_true(
+    in_p: &ManifoldImpl,
+    _in_q: &ManifoldImpl,
+    _intersections: &Intersections,
+    _expand_p: bool,
+) -> Vec<i32> {
+    vec![0i32; in_p.vert_pos.len()]
+}
+
+pub fn winding03(
+    in_p: &ManifoldImpl,
+    in_q: &ManifoldImpl,
+    intersections: &Intersections,
+    expand_p: bool,
+    _forward: bool,
+) -> Vec<i32> {
+    if expand_p {
+        winding03_true_true(in_p, in_q, intersections, true)
+    } else {
+        winding03_true_true(in_p, in_q, intersections, false)
     }
-    let verts: Vec<u32> = components.into_iter().collect();
-
-    let w30_atomic: Vec<AtomicI32> = (0..n_q).map(|_| AtomicI32::new(0)).collect();
-
-    if let Some(collider) = &in_p.collider {
-        let query = WindingQuery {
-            verts: &verts,
-            vert_pos: &in_q.vert_pos,
-        };
-        let recorder = WindingRecorder {
-            w03: &w30_atomic,
-            verts: &verts,
-            in_p: in_p,
-            in_q: in_q,
-            forward: false,
-            expand_p,
-        };
-        collider.collisions::<false, _, _>(&query, verts.len() as i32, &recorder, true);
-    }
-
-    let mut w30 = vec![0i32; n_q];
-    for i in 0..n_q {
-        let root = dset.find(i as u32);
-        w30[i] = w30_atomic[root as usize].load(Ordering::SeqCst);
-    }
-
-    w30
 }

@@ -17,5 +17,6 @@ pub mod polygon;
 pub mod triangulation;
 
 pub use bbox::Rect;
+pub use polygon::triangulate_convex;
 pub use polygon::{Polygons, PolygonsIdx, SimplePolygon, SimplePolygonIdx};
-pub use triangulation::{ccw, triangulate_idx, triangulate_convex};
+pub use triangulation::{ccw, triangulate_idx};

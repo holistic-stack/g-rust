@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::polygon::triangulate_idx
-use crate::polygon::PolygonsIdx;
-use glam::IVec3;
+use crate::polygon::{triangulate_convex, PolygonsIdx};
+use glam::{DVec2, IVec3};
 
 /// Triangulates a set of ε-valid polygons. If the input is not
 /// ε-valid, triangulation may overlap, but will always return a
@@ -36,4 +35,35 @@ use glam::IVec3;
 /// The triangles, referencing the original polygon points.
 pub fn triangulate(polys: &PolygonsIdx, epsilon: f64, allow_convex: bool) -> Vec<IVec3> {
     triangulate_convex(polys)
+}
+
+/// Counter-clockwise test for three points
+///
+/// Returns 1 for CCW, -1 for CW, and 0 if within tolerance of colinear.
+///
+/// C++ Reference: src/utils.h:159-168
+pub fn ccw(p0: DVec2, p1: DVec2, p2: DVec2, tol: f64) -> i32 {
+    let v1 = p1 - p0;
+    let v2 = p2 - p0;
+    let area = v1.x * v2.y - v1.y * v2.x;
+    let base2 = v1.dot(v1).max(v2.dot(v2));
+
+    if area * area * 4.0 <= base2 * tol * tol {
+        0
+    } else {
+        if area > 0.0 {
+            1
+        } else {
+            -1
+        }
+    }
+}
+
+/// Index-based triangulation entry point
+///
+/// This is the main triangulation function that works with index-based polygons.
+///
+/// C++ Reference: src/polygon.cpp:241-244 (triangulate_idx function)
+pub fn triangulate_idx(polys: &PolygonsIdx, epsilon: f64) -> Vec<IVec3> {
+    triangulate(polys, epsilon, true)
 }

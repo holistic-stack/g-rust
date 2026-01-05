@@ -62,6 +62,9 @@ impl Box {
     }
 
     pub fn transform(&self, transform: DMat4) -> Box {
+        if !self.is_finite() {
+            return *self;
+        }
         let mut out = Box::default();
         let corners = [
             DVec3::new(self.min.x, self.min.y, self.min.z),

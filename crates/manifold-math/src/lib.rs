@@ -18,6 +18,7 @@ pub mod interp;
 pub mod morton;
 pub mod tri_dist;
 pub mod trig;
+pub mod utils;
 
 pub use bbox::{Box, Rect};
 pub use constants::*;
@@ -25,3 +26,6 @@ pub use interp::smoothstep;
 pub use morton::*;
 pub use tri_dist::{distance_triangle_triangle_squared, edge_edge_dist, EdgeEdgeDist};
 pub use trig::*;
+pub use utils::*;
+
+pub use utils::*;

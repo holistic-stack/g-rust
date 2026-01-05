@@ -120,7 +120,7 @@ where
             let num_threads = rayon::current_num_threads();
             let block_size = (n + num_threads - 1) / num_threads;
 
-            let mut block_sums: Vec<T> = (0..num_threads)
+            let block_sums: Vec<T> = (0..num_threads)
                 .into_par_iter()
                 .map(|i| {
                     let start = i * block_size;

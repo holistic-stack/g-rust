@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use crate::policy::{ExecutionPolicy, K_SEQ_THRESHOLD};
-use rayon::prelude::*;
 
 /// Sort the range in ascending order using the comparison function.
 /// Port of C++ stable_sort from parallel.h:1028
