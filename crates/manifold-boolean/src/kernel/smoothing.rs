@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use glam::DVec3;
+use crate::kernel::ManifoldImpl;
+use glam::{DMat3, DQuat, DVec3, DVec4};
 use manifold_math::{K_PI, K_TWO_PI};
 use manifold_types::{Barycentric, TriRef};
+use std::collections::HashMap;
 
 /// Smoothness information for an edge
 #[derive(Debug, Clone, Copy)]
@@ -27,20 +29,17 @@ fn safe_normalize(v: DVec3) -> DVec3 {
     v.normalize_or_zero()
 }
 
-fn _k_precision() -> f64 {
-    1e-6
+fn k_precision() -> f64 {
+    1e-5
 }
-
-use super::ManifoldImpl;
 
 /// Returns a normalized vector orthogonal to ref, in the plane of ref and in,
 /// unless in and ref are colinear, in which case it falls back to the plane of
 /// ref and altIn.
-fn _orthogonal_to(in_vec: DVec3, alt_in: DVec3, ref_vec: DVec3) -> DVec3 {
+fn orthogonal_to(in_vec: DVec3, alt_in: DVec3, ref_vec: DVec3) -> DVec3 {
     let dot = in_vec.dot(ref_vec);
     let mut out = in_vec - dot * ref_vec;
-    let k_precision = 1e-6;
-    if out.dot(out) < k_precision * in_vec.dot(in_vec) {
+    if out.dot(out) < k_precision() * in_vec.dot(in_vec) {
         let alt_dot = alt_in.dot(ref_vec);
         out = alt_in - alt_dot * ref_vec;
     }
@@ -75,102 +74,100 @@ fn angle_between(a: DVec3, b: DVec3) -> f64 {
 /// vector to the neighboring vertex. In a symmetric situation where the tangents
 /// at each end are mirror images of each other, this will result in a circular
 /// arc.
-fn circular_tangent(tangent: DVec3, edge_vec: DVec3) -> DVec3 {
+fn circular_tangent(tangent: DVec3, edge_vec: DVec3) -> (DVec3, f64) {
     let dir = safe_normalize(tangent);
 
-    let weight = 0.5f64.max(dir.normalize_or_zero().dot(safe_normalize(edge_vec)));
-    // Quadratic weighted bezier for circular interpolation
+    let weight = 0.5f64.max(dir.dot(safe_normalize(edge_vec)));
     let bz2 = (dir * edge_vec.length() * 0.5, weight);
-    // Equivalent cubic weighted bezier
-    let bz3 = (
-        glam::DVec3::ZERO.lerp(DVec3::from(bz2.0), 2.0 / 3.0),
-        bz2.1 * (2.0 / 3.0),
-    );
-    // Convert from homogeneous form to geometric form
-    DVec3::new(bz3.0.x / bz3.1, bz3.0.y / bz3.1, bz3.0.z / bz3.1)
+    let t = 2.0 / 3.0;
+    let bz3_v = DVec3::ZERO.lerp(bz2.0, t);
+    let bz3_w = 1.0 + (bz2.1 - 1.0) * t;
+
+    if bz3_w == 0.0 {
+        (bz3_v, 0.0)
+    } else {
+        (bz3_v / bz3_w, bz3_w)
+    }
 }
 
-struct _InterpTri<'a> {
+struct InterpTri<'a> {
     vert_pos: &'a mut [DVec3],
     vert_bary: &'a [Barycentric],
     impl_: &'a ManifoldImpl,
 }
 
-impl<'a> _InterpTri<'a> {
-    fn _homogeneous(v4: (DVec3, f64)) -> (DVec3, f64) {
-        let v3 = v4.0 * v4.1;
-        (v3, v4.1)
+impl<'a> InterpTri<'a> {
+    fn homogeneous_from_vec4(v: (DVec3, f64)) -> (DVec3, f64) {
+        (v.0 * v.1, v.1)
     }
 
-    fn _homogeneous_from_vec3(v: DVec3) -> (DVec3, f64) {
+    fn homogeneous(v: DVec3) -> (DVec3, f64) {
         (v, 1.0)
     }
 
-    fn _h_normalize(v4: (DVec3, f64)) -> DVec3 {
-        if v4.1 == 0.0 {
-            v4.0
+    fn h_normalize(v: (DVec3, f64)) -> DVec3 {
+        if v.1 == 0.0 {
+            v.0
         } else {
-            v4.0 / v4.1
+            v.0 / v.1
         }
     }
 
-    fn _scale(v4: (DVec3, f64), scale: f64) -> (DVec3, f64) {
-        (v4.0 * scale, v4.1)
+    fn bezier(point: DVec3, tangent: (DVec3, f64)) -> (DVec3, f64) {
+        let sum_xyz = point + tangent.0;
+        let sum_w = tangent.1;
+        (sum_xyz * sum_w, sum_w)
     }
 
-    fn _bezier(point: DVec3, tangent: (DVec3, f64)) -> (DVec3, f64) {
-        let point_v4 = (point, 0.0);
-        (point_v4.0 + tangent.0, tangent.1)
-    }
-
-    fn _cubic_bezier_2_linear(
+    fn cubic_bezier_2_linear(
         p0: (DVec3, f64),
         p1: (DVec3, f64),
         p2: (DVec3, f64),
         p3: (DVec3, f64),
         x: f64,
     ) -> [(DVec3, f64); 2] {
-        let p12 = _lerp_v4(&p1, &p2, x);
-        let out_0 = _lerp_v4(&_lerp_v4(&p0, &p1, x), &p12, x);
-        let out_1 = _lerp_v4(&p12, &_lerp_v4(&p2, &p3, x), x);
-        [out_0, out_1]
+        let lerp = |a: (DVec3, f64), b: (DVec3, f64), t: f64| {
+            (a.0.lerp(b.0, t), a.1 + (b.1 - a.1) * t)
+        };
+        let p12 = lerp(p1, p2, x);
+        let out0 = lerp(lerp(p0, p1, x), p12, x);
+        let out1 = lerp(p12, lerp(p2, p3, x), x);
+        [out0, out1]
     }
 
-    fn _bezier_point(points: [(DVec3, f64); 2], x: f64) -> DVec3 {
-        Self::_h_normalize(_lerp_v4(&points[0], &points[1], x))
+    fn bezier_point(points: [(DVec3, f64); 2], x: f64) -> DVec3 {
+        let lerp = |a: (DVec3, f64), b: (DVec3, f64), t: f64| {
+            (a.0.lerp(b.0, t), a.1 + (b.1 - a.1) * t)
+        };
+        Self::h_normalize(lerp(points[0], points[1], x))
     }
 
-    fn _bezier_tangent(points: [(DVec3, f64); 2]) -> DVec3 {
-        let p0 = Self::_h_normalize(points[0]);
-        let p1 = Self::_h_normalize(points[1]);
-        safe_normalize(p1 - p0)
+    fn bezier_tangent(points: [(DVec3, f64); 2]) -> DVec3 {
+        safe_normalize(Self::h_normalize(points[1]) - Self::h_normalize(points[0]))
     }
 
-    fn _rotate_from_to(v: DVec3, start: glam::DQuat, end: glam::DQuat) -> DVec3 {
-        let q = start.inverse() * end;
-        q.mul_vec3(v)
+    fn rotate_from_to(v: DVec3, start: DQuat, end: DQuat) -> DVec3 {
+        let v_prime = start.conjugate().mul_vec3(v);
+        end.mul_vec3(v_prime)
     }
 
-    fn _slerp(x: glam::DQuat, y: glam::DQuat, a: f64, long_way: bool) -> glam::DQuat {
+    fn slerp(x: DQuat, y: DQuat, a: f64, long_way: bool) -> DQuat {
         let mut z = y;
         let mut cos_theta = x.dot(y);
 
-        // Take the long way around the sphere only when requested
         if (cos_theta < 0.0) != long_way {
             z = -y;
             cos_theta = -cos_theta;
         }
 
         if cos_theta > 1.0 - f64::EPSILON {
-            // for numerical stability use standard slerp
-            x.slerp(z, a)
+            x.lerp(z, a)
         } else {
             let angle = cos_theta.acos();
             let sin_angle = angle.sin();
             let scale_x = ((1.0 - a) * angle).sin() / sin_angle;
             let scale_z = (a * angle).sin() / sin_angle;
-            // Manual quaternion scaling and addition
-            glam::DQuat::from_xyzw(
+            DQuat::from_xyzw(
                 scale_x * x.x + scale_z * z.x,
                 scale_x * x.y + scale_z * z.y,
                 scale_x * x.z + scale_z * z.z,
@@ -179,58 +176,58 @@ impl<'a> _InterpTri<'a> {
         }
     }
 
-    fn _bezier_2_bezier(
+    fn bezier_2_bezier(
         corners: [DVec3; 2],
         tangents_x: [(DVec3, f64); 2],
         tangents_y: [(DVec3, f64); 2],
         x: f64,
         anchor: DVec3,
     ) -> [(DVec3, f64); 2] {
-        let bez = Self::_cubic_bezier_2_linear(
-            Self::_homogeneous_from_vec3(corners[0]),
-            Self::_bezier(corners[0], tangents_x[0]),
-            Self::_bezier(corners[1], tangents_x[1]),
-            Self::_homogeneous_from_vec3(corners[1]),
+        let bez = Self::cubic_bezier_2_linear(
+            Self::homogeneous(corners[0]),
+            Self::bezier(corners[0], tangents_x[0]),
+            Self::bezier(corners[1], tangents_x[1]),
+            Self::homogeneous(corners[1]),
             x,
         );
-        let end = Self::_bezier_point(bez, x);
-        let tangent = Self::_bezier_tangent(bez);
+        let end = Self::bezier_point(bez, x);
+        let tangent = Self::bezier_tangent(bez);
 
         let n_tangents_x = [
             safe_normalize(tangents_x[0].0),
             -safe_normalize(tangents_x[1].0),
         ];
         let bi_tangents = [
-            _orthogonal_to(tangents_y[0].0, anchor - corners[0], n_tangents_x[0]),
-            _orthogonal_to(tangents_y[1].0, anchor - corners[1], n_tangents_x[1]),
+            orthogonal_to(tangents_y[0].0, anchor - corners[0], n_tangents_x[0]),
+            orthogonal_to(tangents_y[1].0, anchor - corners[1], n_tangents_x[1]),
         ];
 
-        let q0 = glam::DQuat::from_mat3(&glam::DMat3::from_cols(
+        let q0 = DQuat::from_mat3(&DMat3::from_cols(
             n_tangents_x[0],
             bi_tangents[0],
             n_tangents_x[0].cross(bi_tangents[0]),
         ));
-        let q1 = glam::DQuat::from_mat3(&glam::DMat3::from_cols(
+        let q1 = DQuat::from_mat3(&DMat3::from_cols(
             n_tangents_x[1],
             bi_tangents[1],
             n_tangents_x[1].cross(bi_tangents[1]),
         ));
+
         let edge = corners[1] - corners[0];
         let long_way = n_tangents_x[0].dot(edge) + n_tangents_x[1].dot(edge) < 0.0;
-        let q_tmp = Self::_slerp(q0, q1, x, long_way);
+        let q_tmp = Self::slerp(q0, q1, x, long_way);
 
-        // Create rotation quaternion that aligns q_tmp's x-axis with the tangent
-        let x_axis = q_tmp.mul_vec3(glam::DVec3::X);
-        let q = glam::DQuat::from_rotation_arc(x_axis, tangent) * q_tmp;
+        let q_x_dir = q_tmp.mul_vec3(DVec3::X);
+        let q = DQuat::from_rotation_arc(q_x_dir, tangent) * q_tmp;
 
-        let delta = Self::_rotate_from_to(tangents_y[0].0, q0, q)
-            .lerp(Self::_rotate_from_to(tangents_y[1].0, q1, q), x);
+        let delta = Self::rotate_from_to(tangents_y[0].0, q0, q)
+            .lerp(Self::rotate_from_to(tangents_y[1].0, q1, q), x);
         let delta_w = tangents_y[0].1 + (tangents_y[1].1 - tangents_y[0].1) * x;
 
-        [Self::_homogeneous_from_vec3(end), (delta, delta_w)]
+        [Self::homogeneous(end), (delta, delta_w)]
     }
 
-    fn _bezier_2d(
+    fn bezier_2d(
         corners: [DVec3; 4],
         tangents_x: [(DVec3, f64); 4],
         tangents_y: [(DVec3, f64); 4],
@@ -238,14 +235,14 @@ impl<'a> _InterpTri<'a> {
         y: f64,
         centroid: DVec3,
     ) -> DVec3 {
-        let bez0 = Self::_bezier_2_bezier(
+        let bez0 = Self::bezier_2_bezier(
             [corners[0], corners[1]],
             [tangents_x[0], tangents_x[1]],
             [tangents_y[0], tangents_y[1]],
             x,
             centroid,
         );
-        let bez1 = Self::_bezier_2_bezier(
+        let bez1 = Self::bezier_2_bezier(
             [corners[2], corners[3]],
             [tangents_x[2], tangents_x[3]],
             [tangents_y[2], tangents_y[3]],
@@ -253,102 +250,71 @@ impl<'a> _InterpTri<'a> {
             centroid,
         );
 
-        let bez = Self::_cubic_bezier_2_linear(
+        let bez = Self::cubic_bezier_2_linear(
             bez0[0],
-            Self::_bezier(bez0[0].0, bez0[1]),
-            Self::_bezier(bez1[0].0, bez1[1]),
+            Self::bezier(bez0[0].0, bez0[1]),
+            Self::bezier(bez1[0].0, bez1[1]),
             bez1[0],
             y,
         );
-        Self::_bezier_point(bez, y)
+        Self::bezier_point(bez, y)
     }
 
-    fn _interpolate(&mut self, vert: usize) {
-        let pos = &mut self.vert_pos[vert];
+    fn call(&mut self, vert: usize) {
         let tri = self.vert_bary[vert].tri as usize;
         let uvw = self.vert_bary[vert].uvw;
 
-        let halfedges = [
-            tri * 3,
-            tri * 3 + 1,
-            tri * 3 + 2,
-            if self.impl_.halfedge[tri * 3].paired_halfedge >= 0 {
-                self.impl_.halfedge[tri * 3].paired_halfedge as usize
-            } else {
-                usize::MAX
-            },
-        ];
+        let mut halfedges = [0i32; 4];
+        halfedges[0] = (tri * 3) as i32;
+        halfedges[1] = (tri * 3 + 1) as i32;
+        halfedges[2] = (tri * 3 + 2) as i32;
+
+        let _pair = self.impl_.halfedge[tri * 3].paired_halfedge;
+        halfedges[3] = -1;
 
         let corners = [
-            self.impl_.vert_pos[self.impl_.halfedge[halfedges[0]].start_vert as usize],
-            self.impl_.vert_pos[self.impl_.halfedge[halfedges[1]].start_vert as usize],
-            self.impl_.vert_pos[self.impl_.halfedge[halfedges[2]].start_vert as usize],
-            if halfedges[3] != usize::MAX {
-                self.impl_.vert_pos[self.impl_.halfedge[halfedges[3]].start_vert as usize]
+            self.impl_.vert_pos[self.impl_.halfedge[halfedges[0] as usize].start_vert as usize],
+            self.impl_.vert_pos[self.impl_.halfedge[halfedges[1] as usize].start_vert as usize],
+            self.impl_.vert_pos[self.impl_.halfedge[halfedges[2] as usize].start_vert as usize],
+            if halfedges[3] >= 0 {
+                self.impl_.vert_pos[self.impl_.halfedge[halfedges[3] as usize].start_vert as usize]
             } else {
                 DVec3::ZERO
             },
         ];
 
         for i in 0..4 {
-            if uvw[i] == 1.0 {
-                *pos = corners[i];
+            let _idx = if i == 3 { 3 } else { i };
+            let val = match i { 0 => uvw.x, 1 => uvw.y, 2 => uvw.z, _ => uvw.w };
+            if val == 1.0 {
+                self.vert_pos[vert] = corners[i];
                 return;
             }
         }
 
         let mut pos_h = (DVec3::ZERO, 0.0);
 
-        if halfedges[3] == usize::MAX {
-            // tri
+        if halfedges[3] < 0 {
+            // Tri
             let tangent_r = [
-                (
-                    self.impl_.halfedge_tangent[halfedges[0]].0,
-                    self.impl_.halfedge_tangent[halfedges[0]].1,
-                ),
-                (
-                    self.impl_.halfedge_tangent[halfedges[1]].0,
-                    self.impl_.halfedge_tangent[halfedges[1]].1,
-                ),
-                (
-                    self.impl_.halfedge_tangent[halfedges[2]].0,
-                    self.impl_.halfedge_tangent[halfedges[2]].1,
-                ),
+                self.impl_.halfedge_tangent[halfedges[0] as usize],
+                self.impl_.halfedge_tangent[halfedges[1] as usize],
+                self.impl_.halfedge_tangent[halfedges[2] as usize],
             ];
             let tangent_l = [
-                (
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[2]].paired_halfedge as usize]
-                        .0,
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[2]].paired_halfedge as usize]
-                        .1,
-                ),
-                (
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[0]].paired_halfedge as usize]
-                        .0,
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[0]].paired_halfedge as usize]
-                        .1,
-                ),
-                (
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[1]].paired_halfedge as usize]
-                        .0,
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[1]].paired_halfedge as usize]
-                        .1,
-                ),
+                self.impl_.halfedge_tangent[self.impl_.halfedge[halfedges[2] as usize].paired_halfedge as usize],
+                self.impl_.halfedge_tangent[self.impl_.halfedge[halfedges[0] as usize].paired_halfedge as usize],
+                self.impl_.halfedge_tangent[self.impl_.halfedge[halfedges[1] as usize].paired_halfedge as usize],
             ];
             let centroid = (corners[0] + corners[1] + corners[2]) / 3.0;
 
             for i in 0..3 {
                 let j = (i + 1) % 3;
                 let k = (i + 2) % 3;
-                let x = uvw[k] / (1.0 - uvw[i]);
+                let uvw_arr = [uvw.x, uvw.y, uvw.z];
+                let x = uvw_arr[k] / (1.0 - uvw_arr[i]);
 
-                let bez = Self::_bezier_2_bezier(
+                let bez = Self::bezier_2_bezier(
                     [corners[j], corners[k]],
                     [tangent_r[j], tangent_l[k]],
                     [tangent_l[j], tangent_r[k]],
@@ -356,102 +322,28 @@ impl<'a> _InterpTri<'a> {
                     centroid,
                 );
 
-                let bez1 = Self::_cubic_bezier_2_linear(
+                let lerp = |a: (DVec3, f64), b: (DVec3, f64), t: f64| {
+                    (a.0.lerp(b.0, t), a.1 + (b.1 - a.1) * t)
+                };
+
+                let bez1 = Self::cubic_bezier_2_linear(
                     bez[0],
-                    Self::_bezier(bez[0].0, bez[1]),
-                    Self::_bezier(
-                        corners[i],
-                        (
-                            (tangent_r[i].0 * (1.0 - x) + tangent_l[i].0 * x),
-                            tangent_r[i].1 * (1.0 - x) + tangent_l[i].1 * x,
-                        ),
-                    ),
-                    Self::_homogeneous_from_vec3(corners[i]),
-                    uvw[i],
+                    Self::bezier(bez[0].0, bez[1]),
+                    Self::bezier(corners[i], lerp(tangent_r[i], tangent_l[i], x)),
+                    Self::homogeneous(corners[i]),
+                    uvw_arr[i],
                 );
-                let p = Self::_bezier_point(bez1, uvw[i]);
-                pos_h.0 += p * (uvw[j] * uvw[k]);
+                let p = Self::bezier_point(bez1, uvw_arr[i]);
+                let add = Self::homogeneous_from_vec4((p, uvw_arr[j] * uvw_arr[k]));
+                pos_h.0 += add.0;
+                pos_h.1 += add.1;
             }
-        } else {
-            // quad
-            let tangents_x = [
-                (
-                    self.impl_.halfedge_tangent[halfedges[0]].0,
-                    self.impl_.halfedge_tangent[halfedges[0]].1,
-                ),
-                (
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[0]].paired_halfedge as usize]
-                        .0,
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[0]].paired_halfedge as usize]
-                        .1,
-                ),
-                (
-                    self.impl_.halfedge_tangent[halfedges[2]].0,
-                    self.impl_.halfedge_tangent[halfedges[2]].1,
-                ),
-                (
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[2]].paired_halfedge as usize]
-                        .0,
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[2]].paired_halfedge as usize]
-                        .1,
-                ),
-            ];
-            let tangents_y = [
-                (
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[3]].paired_halfedge as usize]
-                        .0,
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[3]].paired_halfedge as usize]
-                        .1,
-                ),
-                (
-                    self.impl_.halfedge_tangent[halfedges[1]].0,
-                    self.impl_.halfedge_tangent[halfedges[1]].1,
-                ),
-                (
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[1]].paired_halfedge as usize]
-                        .0,
-                    self.impl_.halfedge_tangent
-                        [self.impl_.halfedge[halfedges[1]].paired_halfedge as usize]
-                        .1,
-                ),
-                (
-                    self.impl_.halfedge_tangent[halfedges[3]].0,
-                    self.impl_.halfedge_tangent[halfedges[3]].1,
-                ),
-            ];
-            let centroid = (corners[0] + corners[1] + corners[2] + corners[3]) * 0.25;
-            let x = uvw[1] + uvw[2];
-            let y = uvw[2] + uvw[3];
-            let p_x = Self::_bezier_2d(corners, tangents_x, tangents_y, x, y, centroid);
-            let p_y = Self::_bezier_2d(
-                [corners[1], corners[2], corners[3], corners[0]],
-                [tangents_y[1], tangents_y[2], tangents_y[3], tangents_y[0]],
-                [tangents_x[1], tangents_x[2], tangents_x[3], tangents_x[0]],
-                y,
-                1.0 - x,
-                centroid,
-            );
-            pos_h.0 += p_x * (x * (1.0 - x));
-            pos_h.0 += p_y * (y * (1.0 - y));
         }
-        *pos = Self::_h_normalize(pos_h);
+        self.vert_pos[vert] = Self::h_normalize(pos_h);
     }
 }
 
-fn _lerp_v4(a: &(DVec3, f64), b: &(DVec3, f64), t: f64) -> (DVec3, f64) {
-    (a.0.lerp(b.0, t), a.1 + (b.1 - a.1) * t)
-}
-
 impl ManifoldImpl {
-    /// Get the property normal associated with the startVert of this halfedge, where
-    /// normalIdx shows the beginning of where normals are stored in the properties.
     pub fn get_normal(&self, halfedge: usize, normal_idx: usize) -> DVec3 {
         let prop = self.halfedge[halfedge].prop_vert as usize;
         let mut normal = DVec3::ZERO;
@@ -461,8 +353,6 @@ impl ManifoldImpl {
         normal
     }
 
-    /// Returns a circular tangent for the requested halfedge, orthogonal to the
-    /// given normal vector, and avoiding folding.
     pub fn tangent_from_normal(&self, normal: DVec3, halfedge: usize) -> (DVec3, f64) {
         let edge = self.halfedge[halfedge];
         let edge_vec =
@@ -470,13 +360,9 @@ impl ManifoldImpl {
         let edge_normal =
             self.face_normal[halfedge / 3] + self.face_normal[edge.paired_halfedge as usize / 3];
         let dir = edge_normal.cross(edge_vec).cross(normal);
-        let tangent = circular_tangent(dir, edge_vec);
-        (tangent, 1.0)
+        circular_tangent(dir, edge_vec)
     }
 
-    /// Returns true if this halfedge should be marked as the interior of a quad, as
-    /// defined by its two triangles referring to the same face, and those triangles
-    /// having no further face neighbors beyond.
     pub fn is_inside_quad(&self, halfedge: usize) -> bool {
         if !self.halfedge_tangent.is_empty() {
             return self.halfedge_tangent[halfedge].1 < 0.0;
@@ -491,7 +377,6 @@ impl ManifoldImpl {
             return false;
         }
 
-        // Check neighbors
         let next_halfedge = |h: usize| -> usize {
             if h % 3 == 2 {
                 h - 2
@@ -525,18 +410,11 @@ impl ManifoldImpl {
         true
     }
 
-    /// Returns true if this halfedge is an interior of a quad, as defined by its
-    /// halfedge tangent having negative weight.
     pub fn is_marked_inside_quad(&self, halfedge: usize) -> bool {
         !self.halfedge_tangent.is_empty() && self.halfedge_tangent[halfedge].1 < 0.0
     }
 
-    /// Sharpened edges are referenced to the input Mesh, but the triangles have
-    /// been sorted in creating the Manifold, so the indices are converted using
-    /// meshRelation_.faceID, which temporarily holds the mapping.
     pub fn update_sharpened_edges(&self, sharpened_edges: &[Smoothness]) -> Vec<Smoothness> {
-        use std::collections::HashMap;
-
         let mut old_halfedge2new = HashMap::new();
         for tri in 0..self.halfedge.len() / 3 {
             let old_tri = self.mesh_relation.tri_ref[tri].face_id;
@@ -554,8 +432,6 @@ impl ManifoldImpl {
         new_sharp
     }
 
-    /// Find faces containing at least 3 triangles - these will not have
-    /// interpolated normals - all their vert normals must match their face normal.
     pub fn flat_faces(&self) -> Vec<bool> {
         let num_tri = self.halfedge.len() / 3;
         let mut tri_is_flat_face = vec![false; num_tri];
@@ -587,9 +463,6 @@ impl ManifoldImpl {
         tri_is_flat_face
     }
 
-    /// Returns a vector of length numVert that has a tri that is part of a
-    /// neighboring flat face if there is only one flat face. If there are none it
-    /// gets -1, and if there are more than one it gets -2.
     pub fn vert_flat_face(&self, flat_faces: &[bool]) -> Vec<i32> {
         let num_vert = self.vert_pos.len();
         let mut vert_flat_face = vec![-1i32; num_vert];
@@ -623,7 +496,6 @@ impl ManifoldImpl {
             let vert = self.halfedge[idx].start_vert as usize;
             let old = std::mem::replace(&mut counters[vert], 1);
             if old == 1 {
-                // arbitrary, last one wins
                 vert_halfedge[vert] = idx;
             }
         }
@@ -658,9 +530,6 @@ impl ManifoldImpl {
         sharpened_edges
     }
 
-    /// Sharpen tangents that intersect an edge to sharpen that edge. The weight is
-    /// unchanged, as this has a squared effect on radius of curvature, except
-    /// in the case of zero radius, which is marked with weight = 0.
     pub fn sharpen_tangent(&mut self, halfedge: usize, smoothness: f64) {
         self.halfedge_tangent[halfedge].0 *= smoothness;
         if smoothness == 0.0 {
@@ -668,14 +537,8 @@ impl ManifoldImpl {
         }
     }
 
-    /// Instead of calculating the internal shared normals like CalculateNormals
-    /// does, this method fills in vertex properties, unshared across edges that
-    /// are bent more than minSharpAngle.
     pub fn set_normals(&mut self, normal_idx: i32, min_sharp_angle: f64) {
-        if self.vert_pos.is_empty() {
-            return;
-        }
-        if normal_idx < 0 {
+        if self.vert_pos.is_empty() || normal_idx < 0 {
             return;
         }
 
@@ -739,8 +602,8 @@ impl ManifoldImpl {
                     self.vert_normal[vert]
                 };
                 let mut last_prop = -1;
-                let mut current = start_edge;
-                loop {
+                let vert_edges = self.collect_vert_edges(start_edge);
+                for current in vert_edges {
                     let prop = old_halfedge_prop[current];
                     self.halfedge[current].prop_vert = prop;
                     if prop != last_prop {
@@ -754,29 +617,114 @@ impl ManifoldImpl {
                             self.properties[dest + normal_idx as usize + i] = normal[i];
                         }
                     }
+                }
+            } else {
+                // vertex has multiple normals
+                let center_pos = self.vert_pos[vert];
+                let mut group = Vec::new();
+                let mut normals = Vec::new();
+                let mut current = start_edge;
+                let mut prev_face = current / 3;
 
-                    let paired = self.halfedge[current].paired_halfedge;
-                    if paired < 0 {
+                loop {
+                    let next = crate::kernel::next_halfedge(self.halfedge[current].paired_halfedge as i32) as usize;
+                    let face = next / 3;
+
+                    let dihedral = self.face_normal[face].dot(self.face_normal[prev_face]).acos().to_degrees();
+                    if dihedral > min_sharp_angle || tri_is_flat_face[face] != tri_is_flat_face[prev_face] || (tri_is_flat_face[face] && tri_is_flat_face[prev_face] && !self.mesh_relation.tri_ref[face].same_face(&self.mesh_relation.tri_ref[prev_face])) {
                         break;
                     }
-                    let paired_idx = paired as usize;
-                    if paired_idx % 3 == 2 {
-                        current = paired_idx - 2;
-                    } else {
-                        current = paired_idx + 1;
-                    }
+                    current = next;
+                    prev_face = face;
                     if current == start_edge {
                         break;
                     }
                 }
-            } else {
-                // vertex has multiple normals - simplified stub
-                // Full implementation requires complex pseudo-normal calculation
+
+                let end_edge = current;
+                let vert_edges = self.collect_vert_edges(end_edge);
+
+                struct FaceEdge {
+                    face: usize,
+                    edge_vec: DVec3,
+                }
+
+                let mut face_edges = Vec::new();
+                for &curr in &vert_edges {
+                    if self.is_inside_quad(curr) {
+                        face_edges.push(FaceEdge { face: curr/3, edge_vec: DVec3::NAN });
+                    } else {
+                        let v = self.halfedge[curr].end_vert as usize;
+                        let mut pos = self.vert_pos[v];
+                        if vert_num_sharp[v] < 2 {
+                            let normal = if vert_flat_face[v] >= 0 {
+                                self.face_normal[vert_flat_face[v] as usize]
+                            } else {
+                                self.vert_normal[v]
+                            };
+                            let tangent = self.tangent_from_normal(normal, self.halfedge[curr].paired_halfedge as usize);
+                            pos += tangent.0;
+                        }
+                        face_edges.push(FaceEdge { face: curr/3, edge_vec: safe_normalize(pos - center_pos) });
+                    }
+                }
+
+                for i in 0..face_edges.len() {
+                    let here = &face_edges[i];
+                    let next = &face_edges[(i + 1) % face_edges.len()];
+
+                    let dihedral = self.face_normal[here.face].dot(self.face_normal[next.face]).acos().to_degrees();
+                    if dihedral > min_sharp_angle || tri_is_flat_face[here.face] != tri_is_flat_face[next.face] || (tri_is_flat_face[here.face] && tri_is_flat_face[next.face] && !self.mesh_relation.tri_ref[here.face].same_face(&self.mesh_relation.tri_ref[next.face])) {
+                        normals.push(DVec3::ZERO);
+                    }
+                    group.push(normals.len() - 1);
+                    if next.edge_vec.x.is_finite() {
+                        let cross = next.edge_vec.cross(here.edge_vec);
+                        normals.last_mut().unwrap().add_assign(safe_normalize(cross) * angle_between(here.edge_vec, next.edge_vec));
+                    }
+                }
+
+                for n in &mut normals {
+                    *n = safe_normalize(*n);
+                }
+
+                let mut last_group = 0;
+                let mut last_prop = -1;
+
+                for (idx, &current1) in vert_edges.iter().enumerate() {
+                    let prop = old_halfedge_prop[current1];
+                    let start = prop as usize * old_num_prop;
+
+                    if group[idx] != last_group && group[idx] != 0 && prop == last_prop {
+                        last_group = group[idx];
+                        let new_prop = self.num_prop_vert();
+                        let mut new_props = vec![0.0; num_prop];
+                        for i in 0..old_num_prop {
+                            new_props[i] = old_properties[start + i];
+                        }
+                        for i in 0..3 {
+                            new_props[normal_idx as usize + i] = normals[group[idx]][i];
+                        }
+                        self.properties.extend(new_props);
+                        self.halfedge[current1].prop_vert = new_prop as i32;
+                    } else if prop != last_prop {
+                        last_prop = prop;
+                        let dest = prop as usize * num_prop;
+                        for i in 0..old_num_prop {
+                            self.properties[dest + i] = old_properties[start + i];
+                        }
+                        for i in 0..3 {
+                            self.properties[dest + normal_idx as usize + i] = normals[group[idx]][i];
+                        }
+                        self.halfedge[current1].prop_vert = prop;
+                    } else {
+                        self.halfedge[current1].prop_vert = prop;
+                    }
+                }
             }
         }
     }
 
-    /// Tangents get flattened to create sharp edges by setting their weight to zero.
     pub fn linearize_flat_tangents(&mut self) {
         let n = self.halfedge_tangent.len();
         for halfedge in 0..n {
@@ -815,9 +763,6 @@ impl ManifoldImpl {
         }
     }
 
-    /// Redistribute the tangents around each vertex so that the angles between them
-    /// have the same ratios as the angles of the triangles between the corresponding
-    /// edges.
     pub fn distribute_tangents(&mut self, fixed_halfedges: &[bool]) {
         let num_halfedge = fixed_halfedges.len();
         for halfedge in 0..num_halfedge {
@@ -858,7 +803,6 @@ impl ManifoldImpl {
                 let this_tangent = safe_normalize(self.halfedge_tangent[current].0);
                 normal += this_tangent.cross(last_tangent);
 
-                // cumulative sum
                 let prev_angle = desired_angle.last().copied().unwrap_or(0.0);
                 desired_angle.push(angle_between(this_edge_vec, last_edge_vec) + prev_angle);
 
@@ -889,7 +833,6 @@ impl ManifoldImpl {
             let mut offset = 0.0;
 
             if current == halfedge {
-                // only one - find average offset
                 for i in 0..current_angle.len() {
                     offset += wrap(current_angle[i] - scale * desired_angle[i]);
                 }
@@ -913,7 +856,6 @@ impl ManifoldImpl {
                 desired_angle[i] *= scale;
                 let last_angle = if i > 0 { desired_angle[i - 1] } else { 0.0 };
 
-                // shrink obtuse angles
                 if desired_angle[i] - last_angle > K_PI {
                     desired_angle[i] = last_angle + K_PI;
                 } else if i + 1 < desired_angle.len()
@@ -924,7 +866,7 @@ impl ManifoldImpl {
 
                 let angle = current_angle[i] - desired_angle[i] - offset;
                 let mut tangent = self.halfedge_tangent[current];
-                let q = glam::DQuat::from_axis_angle(normal.normalize(), angle);
+                let q = DQuat::from_axis_angle(normal.normalize(), angle);
                 tangent.0 = q.mul_vec3(tangent.0);
                 self.halfedge_tangent[current] = tangent;
                 i += 1;
@@ -936,18 +878,128 @@ impl ManifoldImpl {
         }
     }
 
-    /// Helper function to iterate around a vertex
-    fn for_vert<F>(&self, start_edge: usize, mut callback: F)
+    pub fn create_tangents(&mut self, normal_idx: i32) {
+        let num_vert = self.vert_pos.len();
+        let num_halfedge = self.halfedge.len();
+        self.halfedge_tangent.clear();
+        self.halfedge_tangent.resize(num_halfedge, (DVec3::ZERO, 0.0));
+        let mut fixed_halfedge = vec![false; num_halfedge];
+
+        let vert_halfedge = self.vert_halfedge();
+
+        for e in 0..num_vert {
+            struct FlatNormal {
+                is_flat_face: bool,
+                normal: DVec3,
+            }
+            let mut face_edges = [-1i32; 2];
+            let mut flat_normals = Vec::new();
+
+            let vert_edges = self.collect_vert_edges(vert_halfedge[e]);
+            for &halfedge in &vert_edges {
+                let normal = self.get_normal(halfedge, normal_idx as usize);
+                let diff = self.face_normal[halfedge / 3] - normal;
+                flat_normals.push(FlatNormal {
+                    is_flat_face: diff.dot(diff) < k_precision() * k_precision(),
+                    normal,
+                });
+            }
+
+            for (idx, &halfedge) in vert_edges.iter().enumerate() {
+                let here = &flat_normals[idx];
+                let next = &flat_normals[(idx + 1) % flat_normals.len()];
+
+                if self.is_inside_quad(halfedge) {
+                    self.halfedge_tangent[halfedge] = (DVec3::ZERO, -1.0);
+                    continue;
+                }
+
+                let diff = next.normal - here.normal;
+                let different_normals = diff.dot(diff) > k_precision() * k_precision();
+
+                if different_normals || here.is_flat_face != next.is_flat_face {
+                    fixed_halfedge[halfedge] = true;
+                    if face_edges[0] == -1 {
+                        face_edges[0] = halfedge as i32;
+                    } else if face_edges[1] == -1 {
+                        face_edges[1] = halfedge as i32;
+                    } else {
+                        face_edges[0] = -2;
+                    }
+                }
+
+                if different_normals {
+                    let edge_vec = self.vert_pos[self.halfedge[halfedge].end_vert as usize] - self.vert_pos[self.halfedge[halfedge].start_vert as usize];
+                    let dir = here.normal.cross(next.normal);
+                    let sign = if dir.dot(edge_vec) < 0.0 { -1.0 } else { 1.0 };
+                    self.halfedge_tangent[halfedge] = circular_tangent(dir * sign, edge_vec);
+                } else {
+                    self.halfedge_tangent[halfedge] = self.tangent_from_normal(here.normal, halfedge);
+                }
+            }
+
+            if face_edges[0] >= 0 && face_edges[1] >= 0 {
+                let edge0 = self.vert_pos[self.halfedge[face_edges[0] as usize].end_vert as usize] - self.vert_pos[self.halfedge[face_edges[0] as usize].start_vert as usize];
+                let edge1 = self.vert_pos[self.halfedge[face_edges[1] as usize].end_vert as usize] - self.vert_pos[self.halfedge[face_edges[1] as usize].start_vert as usize];
+                let new_tangent = safe_normalize(edge0) - safe_normalize(edge1);
+                self.halfedge_tangent[face_edges[0] as usize] = circular_tangent(new_tangent, edge0);
+                self.halfedge_tangent[face_edges[1] as usize] = circular_tangent(-new_tangent, edge1);
+            } else if face_edges[0] == -1 && face_edges[1] == -1 {
+                fixed_halfedge[vert_halfedge[e]] = true;
+            }
+        }
+
+        self.distribute_tangents(&fixed_halfedge);
+    }
+
+    pub fn refine<F>(&mut self, edge_divisions: F, _keep_interior: bool)
     where
-        F: FnMut(usize),
+        F: Fn(DVec3, DVec4, DVec4) -> i32,
     {
+        if self.vert_pos.is_empty() {
+            return;
+        }
+
+        let old = self.clone();
+
+        let vert_bary = self.subdivide(edge_divisions);
+
+        if vert_bary.is_empty() {
+            return;
+        }
+
+        if old.halfedge_tangent.len() == old.halfedge.len() {
+            let len = self.vert_pos.len();
+            let mut interp = InterpTri {
+                vert_pos: &mut self.vert_pos,
+                vert_bary: &vert_bary,
+                impl_: &old,
+            };
+
+            for i in 0..len {
+                interp.call(i);
+            }
+        }
+
+        self.halfedge_tangent.clear();
+        self.finish();
+        if old.halfedge_tangent.len() == old.halfedge.len() {
+            self.mark_coplanar();
+        }
+        self.mesh_relation.original_id = -1;
+    }
+
+    // Helper to collect edges around a vertex
+    fn collect_vert_edges(&self, start_edge: usize) -> Vec<usize> {
+        let mut edges = Vec::new();
         let mut current = start_edge;
         loop {
-            callback(current);
-            let paired = self.halfedge[current].paired_halfedge as usize;
+            edges.push(current);
+            let paired = self.halfedge[current].paired_halfedge;
             if paired < 0 {
                 break;
             }
+            let paired = paired as usize;
             if paired % 3 == 2 {
                 current = paired - 2;
             } else {
@@ -957,5 +1009,16 @@ impl ManifoldImpl {
                 break;
             }
         }
+        edges
+    }
+}
+
+trait AddAssign {
+    fn add_assign(&mut self, other: Self);
+}
+
+impl AddAssign for DVec3 {
+    fn add_assign(&mut self, other: DVec3) {
+        *self = *self + other;
     }
 }

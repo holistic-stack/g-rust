@@ -16,7 +16,7 @@ use crate::kernel::{Intersections, ManifoldImpl};
 use glam::DVec3;
 use manifold_math::Box as GeoBox;
 use manifold_types::{Halfedge, OpType, TriRef};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy)]
 pub struct EdgePos {
@@ -111,8 +111,8 @@ pub fn pair_up(edge_pos: &mut [EdgePos]) -> Vec<Halfedge> {
 }
 
 pub fn add_new_edge_verts(
-    edges_p: &mut HashMap<i32, Vec<EdgePos>>,
-    _edges_new: &mut HashMap<(i32, i32), Vec<EdgePos>>,
+    edges_p: &mut BTreeMap<i32, Vec<EdgePos>>,
+    _edges_new: &mut BTreeMap<(i32, i32), Vec<EdgePos>>,
     p1q2: &[[i32; 2]],
     i12: &[i32],
     v12_r: &[i32],
@@ -309,7 +309,7 @@ pub fn append_partial_edges(
     mesh_r: &mut ManifoldImpl,
     whole_halfedge_p: &mut [bool],
     face_ptr_r: &mut [i32],
-    edges_p: &mut HashMap<i32, Vec<EdgePos>>,
+    edges_p: &mut BTreeMap<i32, Vec<EdgePos>>,
     halfedge_ref: &mut [TriRef],
     in_p: &ManifoldImpl,
     i03: &[i32],
@@ -400,7 +400,7 @@ pub fn append_partial_edges(
 pub fn append_new_edges(
     mesh_r: &mut ManifoldImpl,
     face_ptr_r: &mut [i32],
-    edges_new: &mut HashMap<(i32, i32), Vec<EdgePos>>,
+    edges_new: &mut BTreeMap<(i32, i32), Vec<EdgePos>>,
     halfedge_ref: &mut [TriRef],
     face_pq2r: &[i32],
     num_face_p: usize,
@@ -542,9 +542,9 @@ pub fn create_boolean_result(
         }
     }
 
-    let mut edges_p: HashMap<i32, Vec<EdgePos>> = HashMap::new();
-    let mut edges_q: HashMap<i32, Vec<EdgePos>> = HashMap::new();
-    let mut edges_new: HashMap<(i32, i32), Vec<EdgePos>> = HashMap::new();
+    let mut edges_p: BTreeMap<i32, Vec<EdgePos>> = BTreeMap::new();
+    let mut edges_q: BTreeMap<i32, Vec<EdgePos>> = BTreeMap::new();
+    let mut edges_new: BTreeMap<(i32, i32), Vec<EdgePos>> = BTreeMap::new();
 
     add_new_edge_verts(
         &mut edges_p,

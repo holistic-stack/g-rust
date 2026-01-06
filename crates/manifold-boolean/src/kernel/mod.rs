@@ -15,7 +15,7 @@
 use glam::{DVec3, DVec4, IVec3};
 use manifold_collider::Collider;
 use manifold_math::{morton_code, Box as GeoBox, K_NO_CODE};
-use manifold_types::{next_halfedge, Halfedge, OpType, TriRef};
+use manifold_types::{Barycentric, next_halfedge, Halfedge, OpType, TriRef};
 
 pub mod boolean_result;
 pub mod edge_ops;
@@ -249,10 +249,11 @@ impl ManifoldImpl {
         impl_
     }
 
-    pub fn subdivide<F>(&mut self, _edge_divisions: F)
+    pub fn subdivide<F>(&mut self, _edge_divisions: F) -> Vec<Barycentric>
     where
         F: Fn(DVec3, DVec4, DVec4) -> i32,
     {
+        Vec::new() // Stub, will implement later or assume another module implements it
     }
 
     pub fn create_halfedges(&mut self, tri_verts: &[IVec3]) {

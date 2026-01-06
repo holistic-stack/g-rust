@@ -15,6 +15,7 @@
 use glam::IVec3;
 
 use crate::ManifoldImpl;
+use manifold_polygon::PolyVert;
 use manifold_types::TriRef;
 
 /// Triangulate polygon faces in the manifold's halfedge representation.
@@ -58,7 +59,6 @@ pub fn triangulate_mesh_faces(
             // (this would normally be done by the caller)
         } else if num_edge == 4 {
             // Quad - triangulate using convex approach
-            // For now, collect vertices and use convex triangulation
             let quad_verts: Vec<i32> = (first_edge..last_edge)
                 .map(|e| mesh.halfedge[e].start_vert)
                 .collect();
@@ -66,16 +66,16 @@ pub fn triangulate_mesh_faces(
             let mut poly_idx = manifold_polygon::PolygonsIdx::new();
             let mut simple_poly = manifold_polygon::SimplePolygonIdx::new();
 
-            for (_i, &v) in quad_verts.iter().enumerate() {
-                simple_poly.push(v);
+            for &v in &quad_verts {
+                simple_poly.push(PolyVert {
+                    pos: glam::DVec2::ZERO, // Dummy pos
+                    idx: v,
+                });
             }
             poly_idx.push(simple_poly);
 
             let _tris = manifold_polygon::triangulate_idx(&poly_idx, mesh.epsilon);
 
-            // The triangulation result is already in terms of vertex indices
-            // (which is what we need for Boolean operations)
-            // No need to convert further
         } else {
             // General polygon - use convex triangulation as fallback
             let poly_verts: Vec<i32> = (first_edge..last_edge)
@@ -83,11 +83,17 @@ pub fn triangulate_mesh_faces(
                 .collect();
 
             let mut poly_idx = manifold_polygon::PolygonsIdx::new();
-            poly_idx.push(poly_verts);
+            let mut simple_poly = manifold_polygon::SimplePolygonIdx::new();
+
+            for &v in &poly_verts {
+                simple_poly.push(PolyVert {
+                    pos: glam::DVec2::ZERO, // Dummy pos
+                    idx: v,
+                });
+            }
+            poly_idx.push(simple_poly);
 
             let _tris = manifold_polygon::triangulate_idx(&poly_idx, mesh.epsilon);
-
-            // Same as above - triangulation returns vertex indices
         }
     }
 }
