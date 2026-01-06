@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use glam::{DVec2, DVec3, DVec4, IVec3};
+use glam::{DVec3, DVec4, IVec3};
 use manifold_collider::Collider;
 use manifold_math::{morton_code, Box as GeoBox, K_NO_CODE};
 use manifold_types::{next_halfedge, Halfedge, OpType, TriRef};
@@ -107,8 +107,8 @@ impl<'a> Boolean3<'a> {
                 // Compute winding numbers of all vertices using flood fill
                 // Vertices on the same connected component have the same winding number
                 // C++ Reference: submodules/manifold/src/boolean3.cpp:539-542
-                w03 = winding03::winding03_true_true(in_p, in_q, &xv12, expand_p);
-                w30 = winding03::winding03_false_true(in_p, in_q, &xv21, expand_p);
+                w03 = winding03::winding03::<true>(in_p, in_q, &xv12, expand_p);
+                w30 = winding03::winding03::<false>(in_p, in_q, &xv21, expand_p);
             }
         }
 

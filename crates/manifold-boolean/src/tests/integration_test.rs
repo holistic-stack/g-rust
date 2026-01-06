@@ -15,9 +15,6 @@
 use manifold::ManifoldImpl;
 use manifold_boolean::triangulate_mesh_faces;
 
-/// Integration test for Boolean operations
-///
-/// This test verifies that Boolean operations produce valid triangulated meshes.
 #[test]
 fn test() {
     // Create a simple mesh with polygon faces (not triangles)

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::kernel::{Boolean3, Intersections, ManifoldImpl};
+use crate::kernel::{Intersections, ManifoldImpl};
 use glam::DVec3;
 use manifold_math::Box as GeoBox;
 use manifold_types::{Halfedge, OpType, TriRef};

@@ -18,9 +18,8 @@
 use crate::kernel::kernel02::{kernel02_false_true, kernel02_true_true};
 use crate::kernel::{Intersections, ManifoldImpl};
 use manifold_collider::{Query, Recorder};
-use manifold_parallel::{auto_policy, for_each, for_each_n, ExecutionPolicy, K_SEQ_THRESHOLD};
+use manifold_parallel::{auto_policy, for_each_n, K_SEQ_THRESHOLD};
 use manifold_types::DisjointSets;
-use std::collections::HashSet;
 use std::sync::Mutex;
 
 struct WindingRecorder<'a, F>
@@ -86,6 +85,8 @@ fn winding03_inner<const EXPAND_P: bool, const FORWARD: bool>(
         }
 
         // check if the edge is broken
+        // DETERMINISM ASSUMPTION: binary_search requires p1q2 to be sorted by [index].
+        // This is guaranteed by intersect12_inner which sorts p1q2 before calling winding03.
         let edge_i32 = edge as i32;
         let is_broken = p1q2
             .binary_search_by(|probe| probe[index].cmp(&edge_i32))
@@ -96,17 +97,20 @@ fn winding03_inner<const EXPAND_P: bool, const FORWARD: bool>(
         }
     });
 
-    // find components
-    let mut components = HashSet::new();
-    for v in 0..num_verts {
-        components.insert(u_a.find(v as u32));
-    }
-
-    let mut verts: Vec<i32> = components.into_iter().map(|c| c as i32).collect();
-    verts.sort();
+    let verts: Vec<i32> = (0..num_verts)
+        .filter_map(|v| {
+            let root = u_a.find(v as u32) as usize;
+            (root == v).then_some(root as i32)
+        })
+        .collect();
 
     let mut w03 = vec![0i32; num_verts];
-    let w03_mutexes: Vec<Mutex<i32>> = (0..num_verts).map(|_| Mutex::new(0)).collect();
+
+    // DETERMINISM: Winding numbers are accumulated via mutex per component root.
+    // Collision callback order may vary across runs, but addition is commutative,
+    // so final w03_roots values are deterministic regardless of accumulation order.
+    let n_verts = verts.len();
+    let w03_roots: Vec<Mutex<i32>> = (0..n_verts).map(|_| Mutex::new(0)).collect();
 
     let recorder_callback = |i: i32, b_idx: i32| {
         let vert_idx = verts[i as usize];
@@ -116,7 +120,7 @@ fn winding03_inner<const EXPAND_P: bool, const FORWARD: bool>(
             kernel02_false_true(vert_idx, b_idx, a, b)
         };
         if z02.is_finite() {
-            let mut val = w03_mutexes[vert_idx as usize].lock().unwrap();
+            let mut val = w03_roots[i as usize].lock().unwrap();
             *val += s02 * if FORWARD { 1 } else { -1 };
         }
     };
@@ -131,81 +135,29 @@ fn winding03_inner<const EXPAND_P: bool, const FORWARD: bool>(
         collider.collisions::<false, _, _>(&query, verts.len() as i32, &recorder, true);
     }
 
-    // Copy results from mutexes to w03
-    for i in 0..num_verts {
-        w03[i] = *w03_mutexes[i].lock().unwrap();
+    for i in 0..n_verts {
+        w03[verts[i] as usize] = *w03_roots[i].lock().unwrap();
     }
 
-    // flood fill
-    let w03_policy = auto_policy(num_verts, K_SEQ_THRESHOLD);
-    let w03_ptr = w03.as_mut_ptr() as usize;
-    for_each_n(w03_policy, 0, num_verts, |i| {
+    for i in 0..num_verts {
         let root = u_a.find(i as u32) as usize;
         if root != i {
-            unsafe {
-                let w03_mut = std::slice::from_raw_parts_mut(w03_ptr as *mut i32, num_verts);
-                w03_mut[i] = w03_mut[root];
-            }
+            w03[i] = w03[root];
         }
-    });
+    }
 
     w03
 }
 
-pub fn winding03_true_true(
+pub fn winding03<const FORWARD: bool>(
     in_p: &ManifoldImpl,
     in_q: &ManifoldImpl,
     intersections: &Intersections,
     expand_p: bool,
 ) -> Vec<i32> {
     if expand_p {
-        winding03_inner::<true, true>(in_p, in_q, intersections)
+        winding03_inner::<true, FORWARD>(in_p, in_q, intersections)
     } else {
-        winding03_inner::<false, true>(in_p, in_q, intersections)
-    }
-}
-
-pub fn winding03_false_true(
-    in_p: &ManifoldImpl,
-    in_q: &ManifoldImpl,
-    intersections: &Intersections,
-    expand_p: bool,
-) -> Vec<i32> {
-    if expand_p {
-        winding03_inner::<true, false>(in_p, in_q, intersections)
-    } else {
-        winding03_inner::<false, false>(in_p, in_q, intersections)
-    }
-}
-
-pub fn winding03(
-    in_p: &ManifoldImpl,
-    in_q: &ManifoldImpl,
-    intersections: &Intersections,
-    expand_p: bool,
-) -> Vec<i32> {
-    winding03_true_true(in_p, in_q, intersections, expand_p)
-}
-
-pub fn winding03_false_true(
-    in_p: &ManifoldImpl,
-    _in_q: &ManifoldImpl,
-    _intersections: &Intersections,
-    _expand_p: bool,
-) -> Vec<i32> {
-    vec![0i32; in_p.vert_pos.len()]
-}
-
-pub fn winding03(
-    in_p: &ManifoldImpl,
-    in_q: &ManifoldImpl,
-    intersections: &Intersections,
-    expand_p: bool,
-    _forward: bool,
-) -> Vec<i32> {
-    if expand_p {
-        winding03_true_true(in_p, in_q, intersections, true)
-    } else {
-        winding03_true_true(in_p, in_q, intersections, false)
+        winding03_inner::<false, FORWARD>(in_p, in_q, intersections)
     }
 }

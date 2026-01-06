@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use glam::{DQuat, DVec3};
-use manifold_math::{degrees, radians, K_PI, K_TWO_PI};
-use manifold_types::{Barycentric, Halfedge, TriRef};
+use glam::DVec3;
+use manifold_math::{K_PI, K_TWO_PI};
+use manifold_types::{Barycentric, TriRef};
 
 /// Smoothness information for an edge
 #[derive(Debug, Clone, Copy)]
@@ -27,7 +27,7 @@ fn safe_normalize(v: DVec3) -> DVec3 {
     v.normalize_or_zero()
 }
 
-fn k_precision() -> f64 {
+fn _k_precision() -> f64 {
     1e-6
 }
 
@@ -36,7 +36,7 @@ use super::ManifoldImpl;
 /// Returns a normalized vector orthogonal to ref, in the plane of ref and in,
 /// unless in and ref are colinear, in which case it falls back to the plane of
 /// ref and altIn.
-fn orthogonal_to(in_vec: DVec3, alt_in: DVec3, ref_vec: DVec3) -> DVec3 {
+fn _orthogonal_to(in_vec: DVec3, alt_in: DVec3, ref_vec: DVec3) -> DVec3 {
     let dot = in_vec.dot(ref_vec);
     let mut out = in_vec - dot * ref_vec;
     let k_precision = 1e-6;
@@ -90,23 +90,23 @@ fn circular_tangent(tangent: DVec3, edge_vec: DVec3) -> DVec3 {
     DVec3::new(bz3.0.x / bz3.1, bz3.0.y / bz3.1, bz3.0.z / bz3.1)
 }
 
-struct InterpTri<'a> {
+struct _InterpTri<'a> {
     vert_pos: &'a mut [DVec3],
     vert_bary: &'a [Barycentric],
     impl_: &'a ManifoldImpl,
 }
 
-impl<'a> InterpTri<'a> {
-    fn homogeneous(v4: (DVec3, f64)) -> (DVec3, f64) {
+impl<'a> _InterpTri<'a> {
+    fn _homogeneous(v4: (DVec3, f64)) -> (DVec3, f64) {
         let v3 = v4.0 * v4.1;
         (v3, v4.1)
     }
 
-    fn homogeneous_from_vec3(v: DVec3) -> (DVec3, f64) {
+    fn _homogeneous_from_vec3(v: DVec3) -> (DVec3, f64) {
         (v, 1.0)
     }
 
-    fn h_normalize(v4: (DVec3, f64)) -> DVec3 {
+    fn _h_normalize(v4: (DVec3, f64)) -> DVec3 {
         if v4.1 == 0.0 {
             v4.0
         } else {
@@ -114,44 +114,44 @@ impl<'a> InterpTri<'a> {
         }
     }
 
-    fn scale(v4: (DVec3, f64), scale: f64) -> (DVec3, f64) {
+    fn _scale(v4: (DVec3, f64), scale: f64) -> (DVec3, f64) {
         (v4.0 * scale, v4.1)
     }
 
-    fn bezier(point: DVec3, tangent: (DVec3, f64)) -> (DVec3, f64) {
+    fn _bezier(point: DVec3, tangent: (DVec3, f64)) -> (DVec3, f64) {
         let point_v4 = (point, 0.0);
         (point_v4.0 + tangent.0, tangent.1)
     }
 
-    fn cubic_bezier_2_linear(
+    fn _cubic_bezier_2_linear(
         p0: (DVec3, f64),
         p1: (DVec3, f64),
         p2: (DVec3, f64),
         p3: (DVec3, f64),
         x: f64,
     ) -> [(DVec3, f64); 2] {
-        let p12 = lerp_v4(&p1, &p2, x);
-        let out_0 = lerp_v4(&lerp_v4(&p0, &p1, x), &p12, x);
-        let out_1 = lerp_v4(&p12, &lerp_v4(&p2, &p3, x), x);
+        let p12 = _lerp_v4(&p1, &p2, x);
+        let out_0 = _lerp_v4(&_lerp_v4(&p0, &p1, x), &p12, x);
+        let out_1 = _lerp_v4(&p12, &_lerp_v4(&p2, &p3, x), x);
         [out_0, out_1]
     }
 
-    fn bezier_point(points: [(DVec3, f64); 2], x: f64) -> DVec3 {
-        Self::h_normalize(lerp_v4(&points[0], &points[1], x))
+    fn _bezier_point(points: [(DVec3, f64); 2], x: f64) -> DVec3 {
+        Self::_h_normalize(_lerp_v4(&points[0], &points[1], x))
     }
 
-    fn bezier_tangent(points: [(DVec3, f64); 2]) -> DVec3 {
-        let p0 = Self::h_normalize(points[0]);
-        let p1 = Self::h_normalize(points[1]);
+    fn _bezier_tangent(points: [(DVec3, f64); 2]) -> DVec3 {
+        let p0 = Self::_h_normalize(points[0]);
+        let p1 = Self::_h_normalize(points[1]);
         safe_normalize(p1 - p0)
     }
 
-    fn rotate_from_to(v: DVec3, start: glam::DQuat, end: glam::DQuat) -> DVec3 {
+    fn _rotate_from_to(v: DVec3, start: glam::DQuat, end: glam::DQuat) -> DVec3 {
         let q = start.inverse() * end;
         q.mul_vec3(v)
     }
 
-    fn slerp(x: glam::DQuat, y: glam::DQuat, a: f64, long_way: bool) -> glam::DQuat {
+    fn _slerp(x: glam::DQuat, y: glam::DQuat, a: f64, long_way: bool) -> glam::DQuat {
         let mut z = y;
         let mut cos_theta = x.dot(y);
 
@@ -163,7 +163,7 @@ impl<'a> InterpTri<'a> {
 
         if cos_theta > 1.0 - f64::EPSILON {
             // for numerical stability use standard slerp
-            x.slerp(z, a as f32 as f64)
+            x.slerp(z, a)
         } else {
             let angle = cos_theta.acos();
             let sin_angle = angle.sin();
@@ -179,30 +179,30 @@ impl<'a> InterpTri<'a> {
         }
     }
 
-    fn bezier_2_bezier(
+    fn _bezier_2_bezier(
         corners: [DVec3; 2],
         tangents_x: [(DVec3, f64); 2],
         tangents_y: [(DVec3, f64); 2],
         x: f64,
         anchor: DVec3,
     ) -> [(DVec3, f64); 2] {
-        let bez = Self::cubic_bezier_2_linear(
-            Self::homogeneous_from_vec3(corners[0]),
-            Self::bezier(corners[0], tangents_x[0]),
-            Self::bezier(corners[1], tangents_x[1]),
-            Self::homogeneous_from_vec3(corners[1]),
+        let bez = Self::_cubic_bezier_2_linear(
+            Self::_homogeneous_from_vec3(corners[0]),
+            Self::_bezier(corners[0], tangents_x[0]),
+            Self::_bezier(corners[1], tangents_x[1]),
+            Self::_homogeneous_from_vec3(corners[1]),
             x,
         );
-        let end = Self::bezier_point(bez, x);
-        let tangent = Self::bezier_tangent(bez);
+        let end = Self::_bezier_point(bez, x);
+        let tangent = Self::_bezier_tangent(bez);
 
         let n_tangents_x = [
             safe_normalize(tangents_x[0].0),
             -safe_normalize(tangents_x[1].0),
         ];
         let bi_tangents = [
-            orthogonal_to(tangents_y[0].0, anchor - corners[0], n_tangents_x[0]),
-            orthogonal_to(tangents_y[1].0, anchor - corners[1], n_tangents_x[1]),
+            _orthogonal_to(tangents_y[0].0, anchor - corners[0], n_tangents_x[0]),
+            _orthogonal_to(tangents_y[1].0, anchor - corners[1], n_tangents_x[1]),
         ];
 
         let q0 = glam::DQuat::from_mat3(&glam::DMat3::from_cols(
@@ -217,20 +217,20 @@ impl<'a> InterpTri<'a> {
         ));
         let edge = corners[1] - corners[0];
         let long_way = n_tangents_x[0].dot(edge) + n_tangents_x[1].dot(edge) < 0.0;
-        let q_tmp = Self::slerp(q0, q1, x, long_way);
+        let q_tmp = Self::_slerp(q0, q1, x, long_way);
 
         // Create rotation quaternion that aligns q_tmp's x-axis with the tangent
         let x_axis = q_tmp.mul_vec3(glam::DVec3::X);
         let q = glam::DQuat::from_rotation_arc(x_axis, tangent) * q_tmp;
 
-        let delta = Self::rotate_from_to(tangents_y[0].0, q0, q)
-            .lerp(Self::rotate_from_to(tangents_y[1].0, q1, q), x);
+        let delta = Self::_rotate_from_to(tangents_y[0].0, q0, q)
+            .lerp(Self::_rotate_from_to(tangents_y[1].0, q1, q), x);
         let delta_w = tangents_y[0].1 + (tangents_y[1].1 - tangents_y[0].1) * x;
 
-        [Self::homogeneous_from_vec3(end), (delta, delta_w)]
+        [Self::_homogeneous_from_vec3(end), (delta, delta_w)]
     }
 
-    fn bezier_2d(
+    fn _bezier_2d(
         corners: [DVec3; 4],
         tangents_x: [(DVec3, f64); 4],
         tangents_y: [(DVec3, f64); 4],
@@ -238,14 +238,14 @@ impl<'a> InterpTri<'a> {
         y: f64,
         centroid: DVec3,
     ) -> DVec3 {
-        let bez0 = Self::bezier_2_bezier(
+        let bez0 = Self::_bezier_2_bezier(
             [corners[0], corners[1]],
             [tangents_x[0], tangents_x[1]],
             [tangents_y[0], tangents_y[1]],
             x,
             centroid,
         );
-        let bez1 = Self::bezier_2_bezier(
+        let bez1 = Self::_bezier_2_bezier(
             [corners[2], corners[3]],
             [tangents_x[2], tangents_x[3]],
             [tangents_y[2], tangents_y[3]],
@@ -253,17 +253,17 @@ impl<'a> InterpTri<'a> {
             centroid,
         );
 
-        let bez = Self::cubic_bezier_2_linear(
+        let bez = Self::_cubic_bezier_2_linear(
             bez0[0],
-            Self::bezier(bez0[0].0, bez0[1]),
-            Self::bezier(bez1[0].0, bez1[1]),
+            Self::_bezier(bez0[0].0, bez0[1]),
+            Self::_bezier(bez1[0].0, bez1[1]),
             bez1[0],
             y,
         );
-        Self::bezier_point(bez, y)
+        Self::_bezier_point(bez, y)
     }
 
-    fn interpolate(&mut self, vert: usize) {
+    fn _interpolate(&mut self, vert: usize) {
         let pos = &mut self.vert_pos[vert];
         let tri = self.vert_bary[vert].tri as usize;
         let uvw = self.vert_bary[vert].uvw;
@@ -348,7 +348,7 @@ impl<'a> InterpTri<'a> {
                 let k = (i + 2) % 3;
                 let x = uvw[k] / (1.0 - uvw[i]);
 
-                let bez = Self::bezier_2_bezier(
+                let bez = Self::_bezier_2_bezier(
                     [corners[j], corners[k]],
                     [tangent_r[j], tangent_l[k]],
                     [tangent_l[j], tangent_r[k]],
@@ -356,20 +356,20 @@ impl<'a> InterpTri<'a> {
                     centroid,
                 );
 
-                let bez1 = Self::cubic_bezier_2_linear(
+                let bez1 = Self::_cubic_bezier_2_linear(
                     bez[0],
-                    Self::bezier(bez[0].0, bez[1]),
-                    Self::bezier(
+                    Self::_bezier(bez[0].0, bez[1]),
+                    Self::_bezier(
                         corners[i],
                         (
                             (tangent_r[i].0 * (1.0 - x) + tangent_l[i].0 * x),
                             tangent_r[i].1 * (1.0 - x) + tangent_l[i].1 * x,
                         ),
                     ),
-                    Self::homogeneous_from_vec3(corners[i]),
+                    Self::_homogeneous_from_vec3(corners[i]),
                     uvw[i],
                 );
-                let p = Self::bezier_point(bez1, uvw[i]);
+                let p = Self::_bezier_point(bez1, uvw[i]);
                 pos_h.0 += p * (uvw[j] * uvw[k]);
             }
         } else {
@@ -429,8 +429,8 @@ impl<'a> InterpTri<'a> {
             let centroid = (corners[0] + corners[1] + corners[2] + corners[3]) * 0.25;
             let x = uvw[1] + uvw[2];
             let y = uvw[2] + uvw[3];
-            let p_x = Self::bezier_2d(corners, tangents_x, tangents_y, x, y, centroid);
-            let p_y = Self::bezier_2d(
+            let p_x = Self::_bezier_2d(corners, tangents_x, tangents_y, x, y, centroid);
+            let p_y = Self::_bezier_2d(
                 [corners[1], corners[2], corners[3], corners[0]],
                 [tangents_y[1], tangents_y[2], tangents_y[3], tangents_y[0]],
                 [tangents_x[1], tangents_x[2], tangents_x[3], tangents_x[0]],
@@ -441,11 +441,11 @@ impl<'a> InterpTri<'a> {
             pos_h.0 += p_x * (x * (1.0 - x));
             pos_h.0 += p_y * (y * (1.0 - y));
         }
-        *pos = Self::h_normalize(pos_h);
+        *pos = Self::_h_normalize(pos_h);
     }
 }
 
-fn lerp_v4(a: &(DVec3, f64), b: &(DVec3, f64), t: f64) -> (DVec3, f64) {
+fn _lerp_v4(a: &(DVec3, f64), b: &(DVec3, f64), t: f64) -> (DVec3, f64) {
     (a.0.lerp(b.0, t), a.1 + (b.1 - a.1) * t)
 }
 

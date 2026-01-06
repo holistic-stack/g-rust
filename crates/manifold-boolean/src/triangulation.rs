@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use glam::{DVec2, DVec3, IVec3};
+use glam::IVec3;
 
 use crate::ManifoldImpl;
-use manifold_polygon::{polygon::PolyVert, triangulate_idx};
 use manifold_types::TriRef;
 
 /// Triangulate polygon faces in the manifold's halfedge representation.
@@ -27,13 +26,13 @@ use manifold_types::TriRef;
 /// # Arguments
 /// * `mesh` - Mutable reference to the mesh being triangulated
 /// * `face_edge` - Array where face_edge[face] is the first halfedge index for that face
-/// * `halfedge_ref` - Triangle references for each halfedge
-/// * `allow_convex` - Whether to use fast convex triangulation when applicable
+/// * `_halfedge_ref` - Triangle references for each halfedge
+/// * `_allow_convex` - Whether to use fast convex triangulation when applicable
 pub fn triangulate_mesh_faces(
     mesh: &mut ManifoldImpl,
     face_edge: &[usize],
-    halfedge_ref: &[TriRef],
-    allow_convex: bool,
+    _halfedge_ref: &[TriRef],
+    _allow_convex: bool,
 ) {
     let num_faces = face_edge.len() - 1;
 
@@ -46,11 +45,11 @@ pub fn triangulate_mesh_faces(
             continue;
         }
 
-        let normal = mesh.face_normal[face_idx];
+        let _normal = mesh.face_normal[face_idx];
 
         if num_edge == 3 {
             // Triangle - already triangulated
-            let tri = IVec3::new(
+            let _tri = IVec3::new(
                 mesh.halfedge[first_edge].start_vert,
                 mesh.halfedge[first_edge + 1].start_vert,
                 mesh.halfedge[first_edge + 2].start_vert,
@@ -67,12 +66,12 @@ pub fn triangulate_mesh_faces(
             let mut poly_idx = manifold_polygon::PolygonsIdx::new();
             let mut simple_poly = manifold_polygon::SimplePolygonIdx::new();
 
-            for (i, &v) in quad_verts.iter().enumerate() {
+            for (_i, &v) in quad_verts.iter().enumerate() {
                 simple_poly.push(v);
             }
             poly_idx.push(simple_poly);
 
-            let tris = manifold_polygon::triangulate_idx(&poly_idx, mesh.epsilon);
+            let _tris = manifold_polygon::triangulate_idx(&poly_idx, mesh.epsilon);
 
             // The triangulation result is already in terms of vertex indices
             // (which is what we need for Boolean operations)
@@ -86,13 +85,9 @@ pub fn triangulate_mesh_faces(
             let mut poly_idx = manifold_polygon::PolygonsIdx::new();
             poly_idx.push(poly_verts);
 
-            let tris = manifold_polygon::triangulate_idx(&poly_idx, mesh.epsilon);
+            let _tris = manifold_polygon::triangulate_idx(&poly_idx, mesh.epsilon);
 
             // Same as above - triangulation returns vertex indices
         }
     }
-
-    // The mesh structure remains with general polygon faces represented by halfedges
-    // The triangulation utilities provide triangle indices that can be used
-    // to construct a proper triangle mesh representation when needed.
 }

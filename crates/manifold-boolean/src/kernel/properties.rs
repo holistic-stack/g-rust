@@ -62,11 +62,25 @@ impl ManifoldImpl {
         0
     }
 
-    pub fn get_property(&self, _prop: Property) -> f64 {
+    pub fn get_property(&self, prop: Property) -> f64 {
         if self.vert_pos.is_empty() {
             return 0.0;
         }
-        0.0
+
+        let mut sum = 0.0f64;
+        let mut compensation = 0.0f64;
+        let tri_count = self.halfedge.len() / 3;
+        for tri in 0..tri_count {
+            let [v0, v1, v2] = self.get_tri_verts(tri);
+            let val = match prop {
+                Property::SurfaceArea => 0.5 * (v1 - v0).cross(v2 - v0).length(),
+                Property::Volume => (v1 - v0).cross(v2 - v0).dot(v0) / 6.0,
+            };
+            let t = sum + val;
+            compensation += (sum - t) + val;
+            sum = t;
+        }
+        sum + compensation
     }
 
     pub fn calculate_bbox(&mut self) {

@@ -16,11 +16,13 @@
 //!
 //! C++ Reference: `submodules/manifold/src/boolean3.cpp:378-424`
 
-use crate::kernel::kernel12::{kernel12_false_true, kernel12_true_true};
+use crate::kernel::kernel12::{
+    kernel12_false_false, kernel12_false_true, kernel12_true_false, kernel12_true_true,
+};
 use crate::kernel::{Intersections, ManifoldImpl};
 use manifold_collider::{Query, Recorder};
 use manifold_math::Box as GeoBox;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 /// Query wrapper for edge bounding box queries
 struct EdgeBBoxQuery {
@@ -51,6 +53,10 @@ impl Query for EdgeBBoxQuery {
 }
 
 /// Thread-safe intersection storage
+///
+/// DETERMINISM: Intersections may be added in nondeterministic order due to
+/// multi-threaded collision detection. However, determinism is restored
+/// by stable sorting in intersect12_inner before returning results.
 struct IntersectionStore {
     p1q2: Vec<[i32; 2]>,
     x12: Vec<i32>,
@@ -73,35 +79,34 @@ impl IntersectionStore {
     }
 }
 
-/// Kernel12 function pointer type for different expandP/forward combinations
-enum Kernel12Fn {
-    TrueTrue(Arc<ManifoldImpl>, Arc<ManifoldImpl>),
-    TrueFalse(Arc<ManifoldImpl>, Arc<ManifoldImpl>),
-    FalseTrue(Arc<ManifoldImpl>, Arc<ManifoldImpl>),
-    FalseFalse(Arc<ManifoldImpl>, Arc<ManifoldImpl>),
+enum Kernel12Fn<'a> {
+    TrueTrue(&'a ManifoldImpl, &'a ManifoldImpl),
+    TrueFalse(&'a ManifoldImpl, &'a ManifoldImpl),
+    FalseTrue(&'a ManifoldImpl, &'a ManifoldImpl),
+    FalseFalse(&'a ManifoldImpl, &'a ManifoldImpl),
 }
 
-impl Kernel12Fn {
+impl<'a> Kernel12Fn<'a> {
     fn call(&self, a1: i32, b2: i32) -> (i32, glam::DVec3) {
         match self {
             Kernel12Fn::TrueTrue(in_p, in_q) => kernel12_true_true(a1, b2, in_p, in_q),
-            Kernel12Fn::TrueFalse(in_p, in_q) => kernel12_false_true(a1, b2, in_p, in_q),
-            Kernel12Fn::FalseTrue(in_p, in_q) => kernel12_true_true(a1, b2, in_p, in_q),
-            Kernel12Fn::FalseFalse(in_p, in_q) => kernel12_false_true(a1, b2, in_p, in_q),
+            Kernel12Fn::TrueFalse(in_p, in_q) => kernel12_true_false(a1, b2, in_p, in_q),
+            Kernel12Fn::FalseTrue(in_p, in_q) => kernel12_false_true(a1, b2, in_p, in_q),
+            Kernel12Fn::FalseFalse(in_p, in_q) => kernel12_false_false(a1, b2, in_p, in_q),
         }
     }
 }
 
 /// Recorder for collecting edge-face intersections
 /// Uses Mutex for thread-safe interior mutability
-struct Kernel12RecorderImpl {
+struct Kernel12RecorderImpl<'a> {
     store: Mutex<IntersectionStore>,
-    k12: Kernel12Fn,
+    k12: Kernel12Fn<'a>,
     forward: bool,
 }
 
-impl Kernel12RecorderImpl {
-    fn new(k12: Kernel12Fn, forward: bool) -> Self {
+impl<'a> Kernel12RecorderImpl<'a> {
+    fn new(k12: Kernel12Fn<'a>, forward: bool) -> Self {
         Self {
             store: Mutex::new(IntersectionStore::new()),
             k12,
@@ -119,7 +124,7 @@ impl Kernel12RecorderImpl {
     }
 }
 
-impl Recorder for Kernel12RecorderImpl {
+impl<'a> Recorder for Kernel12RecorderImpl<'a> {
     fn record(&self, query_idx: i32, leaf_idx: i32) {
         let (x12, v12) = self.k12.call(query_idx, leaf_idx);
         if v12.x.is_finite() {
@@ -144,20 +149,17 @@ fn intersect12_inner<const EXPAND_P: bool, const FORWARD: bool>(
     let a = if FORWARD { in_p } else { in_q };
     let b = if FORWARD { in_q } else { in_p };
 
-    // Create the kernel function using Arc to give it static lifetime
-    let in_p_arc = Arc::new(in_p.clone());
-    let in_q_arc = Arc::new(in_q.clone());
-    let k12: Kernel12Fn = if EXPAND_P {
+    let k12: Kernel12Fn<'_> = if EXPAND_P {
         if FORWARD {
-            Kernel12Fn::TrueTrue(in_p_arc, in_q_arc)
+            Kernel12Fn::TrueTrue(in_p, in_q)
         } else {
-            Kernel12Fn::TrueFalse(in_p_arc, in_q_arc)
+            Kernel12Fn::TrueFalse(in_p, in_q)
         }
     } else {
         if FORWARD {
-            Kernel12Fn::FalseTrue(in_p_arc, in_q_arc)
+            Kernel12Fn::FalseTrue(in_p, in_q)
         } else {
-            Kernel12Fn::FalseFalse(in_p_arc, in_q_arc)
+            Kernel12Fn::FalseFalse(in_p, in_q)
         }
     };
 
@@ -171,25 +173,19 @@ fn intersect12_inner<const EXPAND_P: bool, const FORWARD: bool>(
     }
 
     // Get the intersections from the recorder
-    let mut intersections = recorder.into_intersections();
+    let intersections = recorder.into_intersections();
 
     // Sort p1q2 according to edges
+    // DETERMINISM: Rust's sort_by is stable, so equal elements preserve relative order
+    // This restores determinism after potentially nondeterministic Mutex-based collection
     let mut i12: Vec<usize> = (0..intersections.p1q2.len()).collect();
+    let index = if FORWARD { 0 } else { 1 };
     i12.sort_by(|&a_idx, &b_idx| {
         let a_pair = &intersections.p1q2[a_idx];
         let b_pair = &intersections.p1q2[b_idx];
-        let index = if FORWARD { 0 } else { 1 };
-        if a_pair[index] < b_pair[index] {
-            std::cmp::Ordering::Less
-        } else if a_pair[index] > b_pair[index] {
-            std::cmp::Ordering::Greater
-        } else if a_pair[1 - index] < b_pair[1 - index] {
-            std::cmp::Ordering::Less
-        } else if a_pair[1 - index] > b_pair[1 - index] {
-            std::cmp::Ordering::Greater
-        } else {
-            std::cmp::Ordering::Equal
-        }
+        a_pair[index]
+            .cmp(&b_pair[index])
+            .then_with(|| a_pair[1 - index].cmp(&b_pair[1 - index]))
     });
 
     // Permute the arrays according to sorted indices

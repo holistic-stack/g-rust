@@ -28,6 +28,18 @@ impl Manifold {
         }
     }
 
+    pub fn mesh_data(&self) -> (Vec<DVec3>, Vec<[i32; 3]>) {
+        let verts = self.impl_.vert_pos.clone();
+        let mut tris = Vec::with_capacity(self.impl_.halfedge.len() / 3);
+        for face in 0..self.impl_.halfedge.len() / 3 {
+            let h0 = &self.impl_.halfedge[3 * face];
+            let h1 = &self.impl_.halfedge[3 * face + 1];
+            let h2 = &self.impl_.halfedge[3 * face + 2];
+            tris.push([h0.start_vert, h1.start_vert, h2.start_vert]);
+        }
+        (verts, tris)
+    }
+
     pub fn cube(size: DVec3, center: bool) -> Self {
         if size.x < 0.0 || size.y < 0.0 || size.z < 0.0 || size.length() == 0.0 {
             return Self::invalid();
@@ -46,6 +58,16 @@ impl Manifold {
         ]);
 
         Self::new(ManifoldImpl::from_shape(Shape::Cube, m))
+    }
+
+    pub fn volume(&self) -> f64 {
+        self.impl_
+            .get_property(manifold_boolean::kernel::properties::Property::Volume)
+    }
+
+    pub fn surface_area(&self) -> f64 {
+        self.impl_
+            .get_property(manifold_boolean::kernel::properties::Property::SurfaceArea)
     }
 
     pub fn sphere(radius: f64, circular_segments: i32) -> Self {

@@ -12,18 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod bbox;
-pub mod constants;
-pub mod interp;
-pub mod morton;
-pub mod tri_dist;
-pub mod trig;
-pub mod utils;
+//! Port of edge_op.cpp functions for mesh cleanup
+//! C++ Reference: submodules/manifold/src/edge_op.cpp
 
-pub use bbox::{Box, Rect};
-pub use constants::*;
-pub use interp::smoothstep;
-pub use morton::*;
-pub use tri_dist::{distance_triangle_triangle_squared, edge_edge_dist, EdgeEdgeDist};
-pub use trig::*;
-pub use utils::*;
+pub mod dedupe;
+pub mod pinch;
+
+pub use dedupe::dedupe_edges;
+pub use pinch::split_pinched_verts;

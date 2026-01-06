@@ -33,7 +33,7 @@ use glam::{DVec2, IVec3};
 ///
 /// # Returns
 /// The triangles, referencing the original polygon points.
-pub fn triangulate(polys: &PolygonsIdx, epsilon: f64, allow_convex: bool) -> Vec<IVec3> {
+pub fn triangulate(polys: &PolygonsIdx, _epsilon: f64, _allow_convex: bool) -> Vec<IVec3> {
     triangulate_convex(polys)
 }
 
