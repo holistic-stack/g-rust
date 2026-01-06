@@ -13,11 +13,15 @@
 // limitations under the License.
 
 use crate::kernel::ManifoldImpl;
+use manifold_parallel::{auto_policy, for_each, stable_sort};
 use manifold_types::next_halfedge;
 use manifold_types::Halfedge;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 /// Deduplicate edges by duplicating vertices.
-/// Port of C++ Manifold::Impl::DedupeEdges in edge_op.cpp:839-965 (serial path)
+/// Port of C++ Manifold::Impl::DedupeEdges in edge_op.cpp
 pub fn dedupe_edges(mesh: &mut ManifoldImpl) {
     loop {
         let nb_edges = mesh.halfedge.len();
@@ -25,122 +29,186 @@ pub fn dedupe_edges(mesh: &mut ManifoldImpl) {
             break;
         }
 
-        let mut processed = vec![false; nb_edges];
-        let mut duplicates = Vec::new();
+        let duplicates = Mutex::new(Vec::new());
+        let processed = (0..nb_edges)
+            .map(|_| AtomicBool::new(false))
+            .collect::<Vec<_>>();
 
-        for i in 0..nb_edges {
-            if processed[i] {
-                continue;
-            }
-            if mesh.halfedge[i].start_vert < 0 || mesh.halfedge[i].end_vert < 0 {
-                continue;
-            }
-
-            let mut end_verts: Vec<(i32, usize)> = Vec::new();
-            // HashMap used only for O(1) lookup, never iterated for output.
-            // Determinism preserved: iteration order doesn't affect algorithm results.
-            let mut end_vert_set: std::collections::HashMap<i32, usize> =
-                std::collections::HashMap::new();
-
-            let mut current = i;
-            loop {
-                let paired = mesh.halfedge[current].paired_halfedge;
-                if paired < 0 {
-                    break;
-                }
-                current = next_halfedge(paired) as usize;
-                if current >= mesh.halfedge.len() {
-                    break;
-                }
-                processed[current] = true;
-
-                if mesh.halfedge[current].start_vert < 0 || mesh.halfedge[current].end_vert < 0 {
-                    continue;
+        if nb_edges > 10_000 {
+            // Parallel path
+            for_each(auto_policy(nb_edges, 10000), 0..nb_edges, |i| {
+                if processed[i].load(Ordering::Relaxed) {
+                    return;
                 }
 
-                let end_v = mesh.halfedge[current].end_vert;
+                if mesh.halfedge[i].start_vert < 0 || mesh.halfedge[i].end_vert < 0 {
+                    return;
+                }
 
-                if end_vert_set.is_empty() {
-                    let mut found = false;
-                    for pair in end_verts.iter_mut() {
-                        if pair.0 == end_v {
-                            pair.1 = pair.1.min(current);
-                            found = true;
-                            break;
-                        }
-                    }
-                    if !found {
-                        end_verts.push((end_v, current));
-                        if end_verts.len() > 32 {
-                            for &(v, idx) in &end_verts {
-                                end_vert_set.insert(v, idx);
+                let mut end_verts: Vec<(i32, usize)> = Vec::new();
+                let mut end_vert_set: HashMap<i32, usize> = HashMap::new();
+
+                let mut current = i;
+                loop {
+                    processed[current].store(true, Ordering::Relaxed);
+
+                    let paired = mesh.halfedge[current].paired_halfedge;
+                    if paired < 0 { break; }
+                    current = next_halfedge(paired) as usize;
+                    if current >= nb_edges { break; }
+
+                    if mesh.halfedge[current].start_vert < 0 || mesh.halfedge[current].end_vert < 0 {
+                        // skip
+                    } else {
+                        let end_v = mesh.halfedge[current].end_vert;
+                        if end_vert_set.is_empty() {
+                            let mut found = false;
+                            for pair in end_verts.iter_mut() {
+                                if pair.0 == end_v {
+                                    pair.1 = pair.1.min(current);
+                                    found = true;
+                                    break;
+                                }
                             }
-                            end_verts.clear();
+                            if !found {
+                                end_verts.push((end_v, current));
+                                if end_verts.len() > 32 {
+                                    for &(v, idx) in &end_verts {
+                                        end_vert_set.insert(v, idx);
+                                    }
+                                    end_verts.clear();
+                                }
+                            }
+                        } else {
+                            end_vert_set.entry(end_v).and_modify(|idx| *idx = (*idx).min(current)).or_insert(current);
                         }
                     }
-                } else {
-                    end_vert_set
-                        .entry(end_v)
-                        .and_modify(|idx| *idx = (*idx).min(current))
-                        .or_insert(current);
+
+                    if current == i { break; }
                 }
 
-                if current == i {
-                    break;
-                }
-            }
+                current = i;
+                let mut local_duplicates = Vec::new();
+                loop {
+                    let paired = mesh.halfedge[current].paired_halfedge;
+                    if paired < 0 { break; }
+                    current = next_halfedge(paired) as usize;
+                    if current >= nb_edges { break; }
 
-            let mut current = i;
-            loop {
-                let paired = mesh.halfedge[current].paired_halfedge;
-                if paired < 0 {
-                    break;
-                }
-                current = next_halfedge(paired) as usize;
-                if current >= mesh.halfedge.len() {
-                    break;
-                }
+                    if mesh.halfedge[current].start_vert >= 0 && mesh.halfedge[current].end_vert >= 0 {
+                        let end_v = mesh.halfedge[current].end_vert;
+                        let keep = if end_vert_set.is_empty() {
+                            end_verts.iter().find(|(v, _)| *v == end_v).map(|(_, idx)| *idx).unwrap_or(current)
+                        } else {
+                            end_vert_set.get(&end_v).copied().unwrap_or(current)
+                        };
 
-                if mesh.halfedge[current].start_vert < 0 || mesh.halfedge[current].end_vert < 0 {
-                    continue;
-                }
-
-                let end_v = mesh.halfedge[current].end_vert;
-
-                let keep = if end_vert_set.is_empty() {
-                    end_verts
-                        .iter()
-                        .find(|(v, _)| *v == end_v)
-                        .map(|&(_, idx)| idx)
-                        .unwrap_or(current)
-                } else {
-                    end_vert_set.get(&end_v).copied().unwrap_or(current)
-                };
-
-                if current != keep {
-                    duplicates.push(current);
+                        if current != keep {
+                            local_duplicates.push(current);
+                        }
+                    }
+                    if current == i { break; }
                 }
 
-                if current == i {
-                    break;
+                if !local_duplicates.is_empty() {
+                    let mut d = duplicates.lock().unwrap();
+                    d.extend(local_duplicates);
                 }
+            });
+        } else {
+            // Serial path
+            let mut processed = vec![false; nb_edges];
+            for i in 0..nb_edges {
+                if processed[i] { continue; }
+                if mesh.halfedge[i].start_vert < 0 || mesh.halfedge[i].end_vert < 0 { continue; }
+
+                let mut end_verts: Vec<(i32, usize)> = Vec::new();
+                let mut end_vert_set: HashMap<i32, usize> = HashMap::new();
+
+                let mut current = i;
+                loop {
+                    processed[current] = true;
+                    let paired = mesh.halfedge[current].paired_halfedge;
+                    if paired < 0 { break; }
+                    current = next_halfedge(paired) as usize;
+                    if current >= nb_edges { break; }
+
+                    if mesh.halfedge[current].start_vert >= 0 && mesh.halfedge[current].end_vert >= 0 {
+                        let end_v = mesh.halfedge[current].end_vert;
+                        if end_vert_set.is_empty() {
+                            let mut found = false;
+                            for pair in end_verts.iter_mut() {
+                                if pair.0 == end_v {
+                                    pair.1 = pair.1.min(current);
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if !found {
+                                end_verts.push((end_v, current));
+                                if end_verts.len() > 32 {
+                                    for &(v, idx) in &end_verts {
+                                        end_vert_set.insert(v, idx);
+                                    }
+                                    end_verts.clear();
+                                }
+                            }
+                        } else {
+                            end_vert_set.entry(end_v).and_modify(|idx| *idx = (*idx).min(current)).or_insert(current);
+                        }
+                    }
+                    if current == i { break; }
+                }
+
+                current = i;
+                let mut local_duplicates = Vec::new();
+                loop {
+                    let paired = mesh.halfedge[current].paired_halfedge;
+                    if paired < 0 { break; }
+                    current = next_halfedge(paired) as usize;
+                    if current >= nb_edges { break; }
+
+                    if mesh.halfedge[current].start_vert >= 0 && mesh.halfedge[current].end_vert >= 0 {
+                        let end_v = mesh.halfedge[current].end_vert;
+                        let keep = if end_vert_set.is_empty() {
+                            end_verts.iter().find(|(v, _)| *v == end_v).map(|(_, idx)| *idx).unwrap_or(current)
+                        } else {
+                            end_vert_set.get(&end_v).copied().unwrap_or(current)
+                        };
+
+                        if current != keep {
+                            local_duplicates.push(current);
+                        }
+                    }
+                    if current == i { break; }
+                }
+
+                let mut d = duplicates.lock().unwrap();
+                d.extend(local_duplicates);
             }
         }
 
-        if duplicates.is_empty() {
+        let mut duplicates_vec = duplicates.into_inner().unwrap();
+        if duplicates_vec.is_empty() {
             break;
         }
 
-        duplicates.sort_unstable();
-        duplicates.dedup();
+        stable_sort(auto_policy(duplicates_vec.len(), 10000), &mut duplicates_vec, |a, b| a.cmp(b));
+        duplicates_vec.dedup();
 
-        for idx in &duplicates {
-            if *idx < mesh.halfedge.len()
-                && mesh.halfedge[*idx].start_vert >= 0
-                && mesh.halfedge[*idx].end_vert >= 0
+        let mut num_flagged = 0;
+        for idx in duplicates_vec {
+            if idx < mesh.halfedge.len()
+                && mesh.halfedge[idx].start_vert >= 0
+                && mesh.halfedge[idx].end_vert >= 0
             {
-                dedupe_edge(mesh, *idx);
+                dedupe_edge(mesh, idx);
+                num_flagged += 1;
             }
+        }
+
+        if num_flagged == 0 {
+            break;
         }
     }
 }

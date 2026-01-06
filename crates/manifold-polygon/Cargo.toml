@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 manifold-types = { path = "../manifold-types" }
 manifold-math = { path = "../manifold-math" }
+manifold-parallel = { path = "../manifold-parallel" }
 glam.workspace = true
 thiserror.workspace = true
 

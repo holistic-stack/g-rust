@@ -13,63 +13,144 @@
 // limitations under the License.
 
 use crate::kernel::ManifoldImpl;
+use manifold_parallel::{auto_policy, for_each, stable_sort};
 use manifold_types::next_halfedge;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 /// Split pinched vertices (verts with multiple disconnected edge cycles).
-/// Port of C++ Manifold::Impl::SplitPinchedVerts in edge_op.cpp:735-837 (serial path)
+/// Port of C++ Manifold::Impl::SplitPinchedVerts in edge_op.cpp
 pub fn split_pinched_verts(mesh: &mut ManifoldImpl) {
     let nb_edges = mesh.halfedge.len();
     if nb_edges == 0 {
         return;
     }
 
-    let num_vert = mesh.vert_pos.len();
-    let mut vert_processed = vec![false; num_vert];
-    let mut halfedge_processed = vec![false; nb_edges];
+    if nb_edges > 10_000 {
+        let num_vert = mesh.vert_pos.len();
+        let largest_edge = (0..num_vert)
+            .map(|_| AtomicUsize::new(usize::MAX))
+            .collect::<Vec<_>>();
 
-    for i in 0..nb_edges {
-        if halfedge_processed[i] {
-            continue;
-        }
+        let pinched = Mutex::new(Vec::new());
 
-        let vert = mesh.halfedge[i].start_vert;
-        if vert < 0 {
-            continue;
-        }
-
-        if vert_processed[vert as usize] {
-            mesh.vert_pos.push(mesh.vert_pos[vert as usize]);
-            let new_vert = (mesh.vert_pos.len() - 1) as i32;
-
+        for_each(auto_policy(nb_edges, 10000), 0..nb_edges, |i| {
+            if mesh.halfedge[i].start_vert < 0 {
+                return;
+            }
+            // Find min edge in cycle
             let mut current = i;
+            let mut min_edge = i;
             loop {
                 let paired = mesh.halfedge[current].paired_halfedge;
-                debug_assert!(paired >= 0);
+                if paired < 0 { break; } // Should be manifold
                 current = next_halfedge(paired) as usize;
+                if current < min_edge {
+                    min_edge = current;
+                }
+                if current == i { break; }
+            }
 
-                halfedge_processed[current] = true;
-                mesh.halfedge[current].start_vert = new_vert;
-                let paired = mesh.halfedge[current].paired_halfedge;
-                debug_assert!(paired >= 0);
-                mesh.halfedge[paired as usize].end_vert = new_vert;
+            // Now try to record this min_edge for the vertex
+            let vert = mesh.halfedge[i].start_vert as usize;
 
-                if current == i {
-                    break;
+            // Loop for CAS
+            let _ = largest_edge[vert].fetch_update(Ordering::SeqCst, Ordering::Relaxed, |val| {
+                if val == usize::MAX {
+                    Some(min_edge)
+                } else if val == min_edge {
+                    Some(min_edge) // Same cycle, ok
+                } else {
+                    None
+                }
+            });
+
+            let val = largest_edge[vert].load(Ordering::SeqCst);
+            if val != usize::MAX && val != min_edge {
+                // Pinched. Add both to list.
+                let mut p = pinched.lock().unwrap();
+                p.push(min_edge);
+                p.push(val);
+            }
+        });
+
+        let mut pinched_vec = pinched.into_inner().unwrap();
+        if !pinched_vec.is_empty() {
+            stable_sort(auto_policy(pinched_vec.len(), 10000), &mut pinched_vec, |a, b| a.cmp(b));
+            pinched_vec.dedup();
+
+            let mut processed_verts = std::collections::HashSet::new();
+            for idx in pinched_vec {
+                let start_vert = mesh.halfedge[idx].start_vert;
+                if processed_verts.contains(&start_vert) {
+                    // Duplicate vertex
+                    mesh.vert_pos.push(mesh.vert_pos[start_vert as usize]);
+                    let new_vert = (mesh.vert_pos.len() - 1) as i32;
+
+                    let mut current = idx;
+                    loop {
+                        mesh.halfedge[current].start_vert = new_vert;
+                        let paired = mesh.halfedge[current].paired_halfedge as usize;
+                        mesh.halfedge[paired].end_vert = new_vert;
+
+                        let next = next_halfedge(paired as i32) as usize;
+                        current = next;
+                        if current == idx { break; }
+                    }
+                } else {
+                    processed_verts.insert(start_vert);
                 }
             }
-        } else {
-            vert_processed[vert as usize] = true;
+        }
 
-            let mut current = i;
-            loop {
-                let paired = mesh.halfedge[current].paired_halfedge;
-                debug_assert!(paired >= 0);
-                current = next_halfedge(paired) as usize;
+    } else {
+        // Serial path
+        let num_vert = mesh.vert_pos.len();
+        let mut vert_processed = vec![false; num_vert];
+        let mut halfedge_processed = vec![false; nb_edges];
 
-                halfedge_processed[current] = true;
+        for i in 0..nb_edges {
+            if halfedge_processed[i] {
+                continue;
+            }
 
-                if current == i {
-                    break;
+            let vert = mesh.halfedge[i].start_vert;
+            if vert < 0 {
+                continue;
+            }
+
+            if vert_processed[vert as usize] {
+                mesh.vert_pos.push(mesh.vert_pos[vert as usize]);
+                let new_vert = (mesh.vert_pos.len() - 1) as i32;
+
+                let mut current = i;
+                loop {
+                    halfedge_processed[current] = true;
+                    mesh.halfedge[current].start_vert = new_vert;
+                    let paired = mesh.halfedge[current].paired_halfedge as usize;
+                    debug_assert!(paired >= 0 as usize);
+                    mesh.halfedge[paired].end_vert = new_vert;
+
+                    let paired = mesh.halfedge[current].paired_halfedge;
+                    current = next_halfedge(paired) as usize;
+
+                    if current == i {
+                        break;
+                    }
+                }
+            } else {
+                vert_processed[vert as usize] = true;
+
+                let mut current = i;
+                loop {
+                    halfedge_processed[current] = true;
+                    let paired = mesh.halfedge[current].paired_halfedge;
+                    debug_assert!(paired >= 0);
+                    current = next_halfedge(paired) as usize;
+
+                    if current == i {
+                        break;
+                    }
                 }
             }
         }

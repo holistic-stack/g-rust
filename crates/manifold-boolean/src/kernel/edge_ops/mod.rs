@@ -17,6 +17,8 @@
 
 pub mod dedupe;
 pub mod pinch;
+pub mod simplify;
 
 pub use dedupe::dedupe_edges;
 pub use pinch::split_pinched_verts;
+pub use simplify::{cleanup_topology, remove_degenerates, simplify_topology};
