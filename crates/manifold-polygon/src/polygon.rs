@@ -13,17 +13,16 @@
 // limitations under the License.
 
 use glam::DVec2;
-use manifold_types::TriRef;
 
-/// A vertex in a polygon, containing 2D position and reference to original vertex
+/// A vertex in a polygon, containing 2D position and index
 ///
 /// C++ Reference: include/manifold/polygon.h:27-30
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct PolyVert {
     /// 2D position of the vertex
     pub pos: DVec2,
-    /// Reference to original vertex in 3D mesh
-    pub ref_vert: TriRef,
+    /// Index (e.g. original vertex index)
+    pub idx: i32,
 }
 
 /// A simple polygon (contiguous, no holes)
@@ -34,7 +33,11 @@ pub type SimplePolygon = Vec<PolyVert>;
 /// Index-based version of SimplePolygon for triangulation
 ///
 /// C++ Reference: include/manifold/polygon.h:39-42
-pub type SimplePolygonIdx = Vec<i32>;
+pub type SimplePolygonIdx = Vec<PolyVert>; // Changed from Vec<i32> to Vec<PolyVert> to match C++ SimplePolygonIdx usage in some contexts?
+// Wait, C++ PolygonsIdx is vector of SimplePolygonIdx.
+// include/manifold/polygon.h: using SimplePolygonIdx = std::vector<PolyVert>;
+// So SimplePolygonIdx IS vector of PolyVert.
+// My previous definition was Vec<i32>, which was wrong.
 
 /// A set of simple polygons (may represent multiple polygons and/or holes)
 ///
@@ -54,19 +57,32 @@ pub type PolygonsIdx = Vec<SimplePolygonIdx>;
 /// C++ Reference: src/polygon.cpp:209-232
 pub fn triangulate_convex(polys: &PolygonsIdx) -> Vec<glam::IVec3> {
     let mut triangles = Vec::new();
+    let num_tri = polys.iter().map(|p| if p.len() >= 3 { p.len() - 2 } else { 0 }).sum();
+    triangles.reserve(num_tri);
 
     for poly in polys {
         if poly.len() < 3 {
             continue;
         }
 
-        // Fan triangulation from first vertex
-        for i in 1..poly.len() - 1 {
+        // Fan triangulation logic from C++ TriangulateConvex (alternating fan)
+        let mut i = 0;
+        let mut k = poly.len() - 1;
+        let mut right = true;
+
+        while i + 1 < k {
+            let j = if right { i + 1 } else { k - 1 };
             triangles.push(glam::IVec3::new(
-                poly[0],
-                poly[i as usize],
-                poly[(i + 1) as usize],
+                poly[i].idx,
+                poly[j].idx,
+                poly[k].idx,
             ));
+            if right {
+                i = j;
+            } else {
+                k = j;
+            }
+            right = !right;
         }
     }
 
